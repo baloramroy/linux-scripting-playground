@@ -16,7 +16,11 @@ mkdir -p "$OUTPUT_DIR"
 for HOUR in {00..23}
 do
     FILE_NAME="${COMPONENT}-${HOSTNAME_VAR}-${INSTANCE}-${LOG_DATE}-${HOUR}-0.log.gz"
-    touch "${OUTPUT_DIR}/${FILE_NAME}"
+    FILE_PATH="${OUTPUT_DIR}/${FILE_NAME}"
+    touch "$FILE_PATH"
+
+    # Set modification time based on LOG_DATE and HOUR
+    touch -t "$(date -d "${LOG_DATE} ${HOUR}:00:00" +%Y%m%d%H%M.%S)" "$FILE_PATH"
 done
 
 echo "Fake log files created."
