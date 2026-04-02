@@ -58,12 +58,13 @@ for date in ${all_dates[@]}; do
     archive_name="${component}-${hostname}-${date}.tar.gz"
     echo "Processing Log for this ${date}"
 
-    # 1️⃣ If archive already exists in destination → skip safely
+    # 1️. If archive already exists in destination → skip safely
     if [[ -f $dst_dir/$archive_name ]]; then
         echo "Archive already exists in destination. Skipping."
         continue
     fi
 
+    # 2️. Recovery case: archive exists in source
     if [[ -f $archive_name ]]; then
         echo "Archive exists in source. Recovering by moving it to destination..."
 
@@ -76,6 +77,15 @@ for date in ${all_dates[@]}; do
         echo "Source Log Remove Successful."
         continue
 
+    fi
+
+    mapfile -t log_files < <(find . -maxdepth 1 -type f -name "*${date}*.log.tar.gz" -printf '%f\n')
+
+    if [[ ${#log_files[@]} -eq 0 ]]; then
+        echo "No hourly log files found for date ${date}"
+        continue
+    else
+        echo "Still hourly log exist in the source, after archive move to destination."
     fi
 
 done
