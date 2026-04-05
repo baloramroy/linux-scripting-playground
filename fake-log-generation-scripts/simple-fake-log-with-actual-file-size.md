@@ -1,5 +1,5 @@
 
-# Generate Fake Log with Actual File Size
+# Simple Scripts to Generate Fake Log with Actual File Size
 ## Script: generate_fake_logs.sh
 
 ```
