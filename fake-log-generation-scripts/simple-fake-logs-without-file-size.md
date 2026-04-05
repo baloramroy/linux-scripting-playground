@@ -1,6 +1,6 @@
 # Simple Script to Generate Fake Logs with Empty File Size.
 
-## Script: `generate_fake_logs.sh`
+## Script: `simple_fake_logs.sh`
 ```bash
 #!/bin/bash
 set -euo pipefail
