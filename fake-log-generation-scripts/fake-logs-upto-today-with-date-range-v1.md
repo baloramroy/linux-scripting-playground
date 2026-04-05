@@ -1,4 +1,4 @@
-## Fake Log File Generator with date range
+## Fake Log File Generator with Date Range upto Today
 
 **The Purpose of this Scripts:**
 - If you pass `4`
