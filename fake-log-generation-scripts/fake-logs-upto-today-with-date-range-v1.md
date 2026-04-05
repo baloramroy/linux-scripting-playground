@@ -1,4 +1,4 @@
-## Fake Rotated Log File Generator
+## Fake Log File Generator with date range
 
 **The Purpose of this Scripts:**
 - If you pass `4`
