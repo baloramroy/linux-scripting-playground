@@ -1,4 +1,4 @@
-# Simple Script to Generate Fake Logs
+# Simple Script to Generate Fake Logs with Empty File Size.
 
 ## Script: `generate_fake_logs.sh`
 ```bash
