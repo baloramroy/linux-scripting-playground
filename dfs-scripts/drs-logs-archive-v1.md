@@ -96,9 +96,9 @@ for DATE in "${DATES[@]}"; do
     if [ -f "$DEST_DIR/$ARCHIVE_NAME" ]; then
         echo "Archive moved successfully"
 	
-	# Change permissions to 777 on the moved archive
-	chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
-	echo "Permission changed to 777 on $DEST_DIR/$ARCHIVE_NAME"
+		# Change permissions to 777 on the moved archive
+		chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
+		echo "Permission changed to 777 on $DEST_DIR/$ARCHIVE_NAME"
 
         echo "Deleting hourly log files.."
         rm -f "${FILES[@]}"
