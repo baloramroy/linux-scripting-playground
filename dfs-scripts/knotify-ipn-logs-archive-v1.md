@@ -118,3 +118,5 @@ echo "All eligible logs processed successfully."
 - Insert below entry
     ```bash
     15 01 * * * /home/scripts/knotify_ipn_logs_archive.sh > /home/scripts/log/knotify-ipn/knotify-ipn-output.log 2>&1
+    ```
+	
