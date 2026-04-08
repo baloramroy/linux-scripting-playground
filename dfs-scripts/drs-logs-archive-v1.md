@@ -68,11 +68,11 @@ for DATE in "${DATES[@]}"; do
         mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
         echo "Archive in the source, successfully move to the destination."
 	
-	# Change permissions to 777 on the moved archive
-	chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
-	echo "Permission changed to 777 on $DEST_DIR/$ARCHIVE_NAME"
+		# Change permissions to 777 on the moved archive
+		chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
+		echo "Permission changed to 777 on $DEST_DIR/$ARCHIVE_NAME"
         
-	rm -f "${COMPONENT}-${HOSTNAME}-${INSTANCE}-${DATE}"-*.log
+		rm -f "${COMPONENT}-${HOSTNAME}-${INSTANCE}-${DATE}"-*.log
         echo "Log Remove Successfuly from the Source directory."
         
 	continue
