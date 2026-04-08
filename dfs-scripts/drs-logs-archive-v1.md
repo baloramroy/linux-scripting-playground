@@ -108,7 +108,19 @@ for DATE in "${DATES[@]}"; do
     fi
 done
 
-```
-
 echo ""
 echo "All eligible logs processed successfully."
+
+```
+
+## Set up Cron Job
+
+- Open cronjob by this command
+	```bash
+	crontab -e
+	```
+
+- Insert below entry
+  ```bash
+  30 02 * * * /home/scripts/drs_log_move.sh > /home/scripts/log/drslog/drs-archive.log 2>&1
+  ```
