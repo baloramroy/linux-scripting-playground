@@ -75,3 +75,10 @@ fi
 
 echo "Done."
 ```
+
+## Set up Crontab for this scripts
+
+```bash
+00 22 * * * /home/scripts/knotify_etl_decryption_log_move.sh > /home/scripts/etl_decryption_log_move_output.log
+```
+
