@@ -74,6 +74,7 @@ else
 fi
 
 echo "Done."
+echo "All eligible logs processed successfully."
 ```
 
 ## Set up Cron Job
