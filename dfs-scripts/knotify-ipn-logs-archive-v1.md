@@ -31,7 +31,7 @@ shopt -s nullglob
 
 # Collect unique dates older than N days
 mapfile -t DATES < <(
-    find . -maxdepth 1 -type f -name "*.log" -mtime +"$DAYS" \
+    find . -maxdepth 1 -type f -name "${COMPONENT}-*.log" -mtime +"$DAYS" \
     | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
     | sort -u
 )
@@ -73,13 +73,13 @@ for DATE in "${DATES[@]}"; do
         continue
     fi
 
-    FILES=(${COMPONENT}-${DATE}-*.log)
+    FILES=("${COMPONENT}-${DATE}-"*.log)
 
     if [ ${#FILES[@]} -eq 0 ]; then
         echo "No hourly log files found for $DATE"
         continue
     else
-        echo "Still hourly log exist in the source, after archive move to destination."
+        echo "Hourly log files found. Proceeding to create archive."
     fi
 
     # 3️. Normal archive creation flow
