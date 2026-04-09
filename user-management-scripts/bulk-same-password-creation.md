@@ -1,15 +1,32 @@
 ```bash
 
 #!/bin/bash
+set -euo pipefail
+
 PASS="password123"
 
-for comp in user1 user2; do 
-    if id "$comp" &>/dev/null; then
-        echo "${comp}:${PASS}" | chpasswd && \
-        echo "✓ password changed successfully for ${comp}"
+# Define users as an array
+users=(
+    user1
+    user2
+    user3
+)
+
+
+for user in "${users[@]}"; do 
+    if id "$user" &>/dev/null; then
+        
+        # Change password
+        echo "${user}:${PASS}" | chpasswd
+        
+        # Set password to never expire
+        chage -M 99999 -I -1 "$user"
+
+        echo "✓ Password changed and set to never expire for ${user}"
     else
-        echo "✗ user ${comp} does not exist"
+        echo "✗ User ${user} does not exist"
     fi
 done
+
 
 ```
