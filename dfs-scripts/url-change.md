@@ -117,3 +117,62 @@ echo "----------------------------------------------------------"
 echo "Update completed."
 echo "----------------------------------------------------------"
 ```
+
+
+## new
+
+```bash
+#!/bin/bash
+
+#----------------------------------------------------------#
+# Author: Baloram Roy
+# Description: Replace config line using safe method
+#----------------------------------------------------------#
+
+targets=(
+    "bkofc"
+    "dfs"
+    "ecs"
+    "extch"
+    "ias"
+    "knotify"
+    "kod"
+    "map"
+    "rms"
+    "spg"
+    "tms"
+)
+
+base_path="/home"
+dest_path="cfg"
+target_file="application.properties"
+backup_date=$(date +%d%m%Y)
+
+echo ""
+echo "Starting update..."
+echo ""
+
+for name in "${targets[@]}"; do
+
+    location="$base_path/$name/$dest_path"
+    file="$base_path/$name/$dest_path/$target_file"
+    backup="$file.bak.$backup_date"
+
+    echo "----------------------------------------------------------"
+    echo "Processing : $file"
+    echo "----------------------------------------------------------"
+
+    if [ ! -d "$location" ]; then
+        echo "[WARN] Directory not found: $location"
+        continue
+    fi
+
+    if [ ! -f "$file" ]; then
+        echo "[WARN] File not found: $file"
+        continue
+    fi
+
+    update=0
+    backup_created=0
+    pattern="spring.datasource.password="
+```
