@@ -1,3 +1,4 @@
+```bash
 #!/bin/bash
 set -euo pipefail
 
@@ -160,3 +161,22 @@ echo
 echo "========================================"
 echo "All eligible logs processed successfully."
 echo "========================================"
+
+```
+
+Insert below setup in crontab by `crontab -e`:
+
+```bash
+#knotifypushdmz logs archive and move scripts
+15 01 * * * /home/scripts/knotifydmzpush_logs_archive.sh >> /home/scripts/logs/knotifydmzpush/knotifydmzpush_archive_output_$(/usr/bin/date +\%F).log 2>&1
+```
+
+It will create one log file per day, for example:
+
+```
+/home/scripts/logs/knotifydmzpush/
+├── knotifydmzpush_archive_output_2026-07-06.log
+├── knotifydmzpush_archive_output_2026-07-07.log
+├── knotifydmzpush_archive_output_2026-07-08.log
+└── ...
+```
