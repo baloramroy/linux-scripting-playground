@@ -78,14 +78,31 @@ archive_component() {
     ########################################################
 
     if [[ ! -d "$SRC_DIR" ]]; then
-        echo "Source directory not found."
+        echo "ERROR: Source directory not found: $SRC_DIR"
         echo "Skipping component."
         return
     fi
 
-    mkdir -p "$DEST_DIR"
-
+    echo "Source directory found."
     cd "$SRC_DIR"
+
+    ########################################################
+    # Ensure destination exists
+    ########################################################
+
+    if [[ ! -d "$DEST_DIR" ]]; then
+        echo "Destination directory does not exist. Creating..."
+        mkdir -p "$DEST_DIR"
+    else
+        echo "Destination directory exists."
+    fi
+
+    ########################################################
+    # Declare File Groups
+    ########################################################
+    
+    echo
+    echo "Searching logs using filename date (older than or equal to $DAYS days)..."
 
     declare -A FILE_GROUPS=()
 
