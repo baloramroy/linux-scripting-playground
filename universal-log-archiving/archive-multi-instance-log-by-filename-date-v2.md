@@ -68,7 +68,7 @@ for file in "${COMPONENT}"-INST_*-*.log.gz; do
         if [[ "$FILE_DATE" < "$CUTOFF_DATE" || "$FILE_DATE" == "$CUTOFF_DATE" ]]; then
             
             # Store filenames separated by newline
-            FILE_GROUPS["$FILE_DATE"]+="$file"$'\n'
+            FILE_GROUPS["$FILE_DATE"]+="$file "
 
         fi
     fi
@@ -107,8 +107,8 @@ for DATE in $(printf '%s\n' "${!FILE_GROUPS[@]}" | sort); do
     # Read files for this date
     #----------------------------------------------
 
-    mapfile -t FILES <<< "${FILE_GROUPS[$DATE]}"
-
+    read -ra FILES <<< "${FILE_GROUPS[$DATE]}"
+    
     #----------------------------------------------
     # Recovery case
     #----------------------------------------------
