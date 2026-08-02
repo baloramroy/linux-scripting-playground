@@ -1,3 +1,6 @@
+## Restart DFS component one by one:
+With the help of this script we can restart all the component one by one with 1 minitue interval.
+
 ```bash
 #!/bin/bash
 ###############################################################################
@@ -243,4 +246,54 @@ then
 else
     exit 0
 fi
+```
+
+## Complete Workflow
+Here's the overall flow in one diagram:
+
+```
+                Start Script
+                     │
+                     ▼
+          Read COMPONENTS array
+                     │
+                     ▼
+        ┌─────────────────────┐
+        │ Next component (cms)│
+        └──────────┬──────────┘
+                   │
+                   ▼
+            Does user exist?
+                   │
+          Yes ─────┴───── No
+           │               │
+           ▼               ▼
+   Check ~/bin exists   Mark FAILED
+           │
+           ▼
+ Check fkill & start exist
+           │
+           ▼
+      Run ./fkill
+           │
+           ▼
+ Wait until process stops
+           │
+           ▼
+      Run ./start
+           │
+           ▼
+ Wait until process starts
+           │
+           ▼
+ Add to SUCCESS
+           │
+           ▼
+      Next component
+           │
+           ▼
+      Print summary
+           │
+           ▼
+            End
 ```
