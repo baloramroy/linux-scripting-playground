@@ -184,11 +184,69 @@ archive_component() {
             echo
             echo "Recovery mode detected."
 
+            echo "Verifying archive contents..."
+
+            ################################################
+            # Verify archive integrity
+            ################################################
+
+            if ! tar -tzf "$ARCHIVE_NAME" >/dev/null 2>&1; then
+                echo "ERROR: Archive is corrupted or cannot be read."
+                echo "Source files will NOT be deleted."
+                continue
+            fi
+
+            ################################################
+            # Verify every source file exists in archive
+            ################################################
+
+            RECOVERY_OK=true
+
+            for FILE in "${FILES[@]}"
+            do
+
+                if tar -tzf "$ARCHIVE_NAME" -- "$FILE" >/dev/null 2>&1; then
+
+                    echo "Verified in archive : $FILE"
+
+                else
+
+                    echo "ERROR: File NOT found in archive : $FILE"
+                    RECOVERY_OK=false
+
+                fi
+
+            done
+
+            ################################################
+            # Delete only if ALL files are verified
+            ################################################
+
+            if [[ "$RECOVERY_OK" != true ]]; then
+
+                echo
+                echo "ERROR: Recovery verification failed."
+                echo "Source files will NOT be deleted."
+                continue
+
+            fi
+
+            ################################################
+            # Move verified archive
+            ################################################
+
+            echo
+            echo "All source files verified in archive."
+
             echo "Moving existing archive..."
 
             mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
 
             chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
+
+            ################################################
+            # Delete source files
+            ################################################
 
             echo "Deleting source logs..."
 
