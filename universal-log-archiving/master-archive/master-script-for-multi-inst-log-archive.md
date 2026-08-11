@@ -258,6 +258,7 @@ archive_component() {
 
         fi
 
+
         ####################################################
         # Create Archive
         ####################################################
@@ -270,6 +271,65 @@ archive_component() {
         echo "Archive created."
 
         ####################################################
+        # Verify Archive
+        ####################################################
+
+        echo
+        echo "Verifying archive..."
+
+        if ! tar -tzf "$ARCHIVE_NAME" >/dev/null 2>&1; then
+
+            echo "ERROR : Archive verification failed."
+            echo "Source files will NOT be deleted."
+
+            rm -f "$ARCHIVE_NAME"
+
+            continue
+
+        fi
+
+        ####################################################
+        # Verify Source Files Are Inside Archive
+        ####################################################
+
+        ARCHIVE_OK=true
+
+        for FILE in "${FILES[@]}"
+        do
+
+            if tar -tzf "$ARCHIVE_NAME" -- "$FILE" >/dev/null 2>&1; then
+
+                echo "Verified in archive : $FILE"
+
+            else
+
+                echo "ERROR : File NOT found in archive : $FILE"
+                ARCHIVE_OK=false
+
+            fi
+
+        done
+
+        ####################################################
+        # Stop if any file is missing
+        ####################################################
+
+        if [[ "$ARCHIVE_OK" != true ]]; then
+
+            echo
+            echo "ERROR : Archive verification failed."
+            echo "Source files will NOT be deleted."
+
+            rm -f "$ARCHIVE_NAME"
+
+            continue
+
+        fi
+
+        echo
+        echo "All source files verified in archive."
+
+        ####################################################
         # Move Archive
         ####################################################
 
@@ -278,7 +338,7 @@ archive_component() {
         mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
 
         ####################################################
-        # Verify
+        # Verify Destination
         ####################################################
 
         if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
@@ -286,6 +346,10 @@ archive_component() {
             chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
 
             echo "Archive moved successfully."
+
+            ################################################
+            # Delete Source Files
+            ################################################
 
             echo "Deleting source log files..."
 
@@ -296,6 +360,7 @@ archive_component() {
         else
 
             echo "ERROR : Failed to move archive."
+            echo "Source files will NOT be deleted."
 
             exit 1
 
