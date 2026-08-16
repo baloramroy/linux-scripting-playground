@@ -21,6 +21,13 @@ set -euo pipefail
 DAYS=3
 LOCK_FILE="/tmp/log_archive.lock"
 
+LOG_DIR="/home/scripts/logs/log_archive"
+LOG_FILE="$LOG_DIR/log_archive_$(date +%Y-%m-%d_%H%M%S).log"
+
+declare -A FILE_GROUPS=()
+# Declaring outside the function so that both functions can access it.
+
+
 #-----------------------------------------------------------
 # Source Directories
 #-----------------------------------------------------------
@@ -50,11 +57,57 @@ flock -n 200 || {
     exit 1
 }
 
+
+############################################################
+# Logging
+############################################################
+
+mkdir -p "$LOG_DIR"
+
+exec >> "$LOG_FILE" 2>&1
+
 ############################################################
 # Cutoff Date
 ############################################################
 
 CUTOFF_DATE=$(date -d "$DAYS days ago" +%F)
+
+
+############################################################
+# Find and Group Logs
+############################################################
+
+find_and_group_logs() {
+
+    local COMPONENT="$1"
+    local CUTOFF_DATE="$2"
+
+    FILE_GROUPS=()
+    # FILE_GROUPS=() - Declaring inside find_and_group_logs() funtion, so that it clears the previous component's groups before processing the next component.
+
+    shopt -s nullglob
+
+    ########################################################
+    # Group logs by filename date
+    ########################################################
+
+    for file in "${COMPONENT}"-INST_*-*.log.gz
+    do
+        [[ -f "$file" ]] || continue
+
+        if [[ $file =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
+
+            FILE_DATE="${BASH_REMATCH[1]}"
+
+            if [[ "$FILE_DATE" < "$CUTOFF_DATE" || "$FILE_DATE" == "$CUTOFF_DATE" ]]; then
+
+                FILE_GROUPS["$FILE_DATE"]+="$file "
+
+            fi
+        fi
+    done
+}
+
 
 ############################################################
 # Archive Function
@@ -98,35 +151,13 @@ archive_component() {
     fi
 
     ########################################################
-    # Declare File Groups
+    # Find and Group Logs
     ########################################################
-    
+
     echo
     echo "Searching logs using filename date (older than or equal to $DAYS days)..."
 
-    declare -A FILE_GROUPS=()
-
-    shopt -s nullglob
-
-    ########################################################
-    # Group logs by filename date
-    ########################################################
-
-    for file in "${COMPONENT}"-INST_*-*.log.gz
-    do
-        [[ -f "$file" ]] || continue
-
-        if [[ $file =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
-
-            FILE_DATE="${BASH_REMATCH[1]}"
-
-            if [[ "$FILE_DATE" < "$CUTOFF_DATE" || "$FILE_DATE" == "$CUTOFF_DATE" ]]; then
-
-                FILE_GROUPS["$FILE_DATE"]+="$file "
-
-            fi
-        fi
-    done
+    find_and_group_logs "$COMPONENT" "$CUTOFF_DATE"
 
     if [[ ${#FILE_GROUPS[@]} -eq 0 ]]; then
         echo "No eligible logs found."
@@ -197,6 +228,12 @@ archive_component() {
             fi
 
             ################################################
+            # Read archive contents once
+            ################################################
+
+            mapfile -t ARCHIVE_FILES < <(tar -tzf "$ARCHIVE_NAME")
+
+            ################################################
             # Verify every source file exists in archive
             ################################################
 
@@ -205,7 +242,7 @@ archive_component() {
             for FILE in "${FILES[@]}"
             do
 
-                if tar -tzf "$ARCHIVE_NAME" -- "$FILE" >/dev/null 2>&1; then
+                if printf '%s\n' "${ARCHIVE_FILES[@]}" | grep -Fxq "$FILE"; then
 
                     echo "Verified in archive : $FILE"
 
@@ -289,7 +326,13 @@ archive_component() {
         fi
 
         ####################################################
-        # Verify Source Files Are Inside Archive
+        # Read archive contents once
+        ####################################################
+
+        mapfile -t ARCHIVE_FILES < <(tar -tzf "$ARCHIVE_NAME")
+
+        ####################################################
+        # Verify source files are inside archive
         ####################################################
 
         ARCHIVE_OK=true
@@ -297,7 +340,7 @@ archive_component() {
         for FILE in "${FILES[@]}"
         do
 
-            if tar -tzf "$ARCHIVE_NAME" -- "$FILE" >/dev/null 2>&1; then
+            if printf '%s\n' "${ARCHIVE_FILES[@]}" | grep -Fxq "$FILE"; then
 
                 echo "Verified in archive : $FILE"
 
