@@ -66,6 +66,28 @@ mkdir -p "$LOG_DIR"
 
 exec >> "$LOG_FILE" 2>&1
 
+
+log_info() {
+
+    echo "[INFO] $*"
+
+}
+
+
+log_warning() {
+
+    echo "[WARNING] $*"
+
+}
+
+
+log_error() {
+
+    echo "[ERROR] $*"
+
+}
+
+
 ############################################################
 # Cutoff Date
 ############################################################
@@ -81,6 +103,8 @@ find_and_group_logs() {
 
     local COMPONENT="$1"
     local CUTOFF_DATE="$2"
+
+    local FILE_DATE
 
     FILE_GROUPS=()
     # FILE_GROUPS=() - Declaring inside find_and_group_logs() funtion, so that it clears the previous component's groups before processing the next component.
@@ -119,8 +143,7 @@ verify_archive() {
 
     local FILE
 
-    echo
-    echo "Verifying archive contents..."
+    log_info "Verifying archive contents..."
 
     ########################################################
     # Verify archive integrity
@@ -128,7 +151,7 @@ verify_archive() {
 
     if ! tar -tzf "$ARCHIVE_NAME" >/dev/null 2>&1; then
 
-        echo "ERROR: Archive is corrupted or cannot be read."
+        log_error "Archive is corrupted or cannot be read."
 
         return 1
 
@@ -147,13 +170,13 @@ verify_archive() {
     for FILE in "${FILES[@]}"
     do
 
-        if printf '%s\n' "${ARCHIVE_FILES[@]}" | grep -Fxq "$FILE"; then
+        if printf '%s\n' "${ARCHIVE_FILES[@]}" | grep -Fx "$FILE" >/dev/null 2>&1; then
 
-            echo "Verified in archive : $FILE"
+            log_info "Verified in archive : $FILE"
 
         else
 
-            echo "ERROR: File NOT found in archive : $FILE"
+            log_error "File NOT found in archive : $FILE"
 
             return 1
 
@@ -161,8 +184,7 @@ verify_archive() {
 
     done
 
-    echo
-    echo "All source files verified in archive."
+    log_info "All source files verified in archive."
 
     return 0
 }
@@ -178,7 +200,7 @@ recover_archive() {
     local DEST_DIR="$2"
 
     echo
-    echo "Recovery mode detected."
+    log_info "Recovery mode detected."
 
     ########################################################
     # Verify Archive
@@ -186,8 +208,8 @@ recover_archive() {
 
     if ! verify_archive "$ARCHIVE_NAME"; then
 
-        echo "ERROR: Recovery verification failed."
-        echo "Source files will NOT be deleted."
+        log_error "Recovery verification failed."
+        log_error "Source files will NOT be deleted."
 
         return 1
 
@@ -197,8 +219,7 @@ recover_archive() {
     # Move verified archive
     ########################################################
 
-    echo
-    echo "Moving existing archive..."
+    log_info "Moving existing archive..."
 
     mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
 
@@ -208,13 +229,11 @@ recover_archive() {
     # Delete source files
     ########################################################
     
-    echo
-    echo "Deleting source logs..."
+    log_warning "Deleting source logs..."
 
     rm -f "${FILES[@]}"
 
-    echo
-    echo "Recovery completed."
+    log_info "Recovery completed."
 
     return 0
 }
@@ -229,19 +248,16 @@ create_archive() {
     local ARCHIVE_NAME="$1"
     local DEST_DIR="$2"
 
-    local FILE
-    local ARCHIVE_OK
-
     ########################################################
     # Create Archive
     ########################################################
 
     echo
-    echo "Creating archive..."
+    log_info "Creating archive..."
 
     tar -czf "$ARCHIVE_NAME" "${FILES[@]}"
 
-    echo "Archive created."
+    log_info "Archive created."
 
     ########################################################
     # Verify Archive
@@ -249,8 +265,8 @@ create_archive() {
 
     if ! verify_archive "$ARCHIVE_NAME"; then
 
-        echo "ERROR: Archive verification failed."
-        echo "Source files will NOT be deleted."
+        log_error "Archive verification failed."
+        log_info "Source files will NOT be deleted."
 
         rm -f "$ARCHIVE_NAME"
 
@@ -262,7 +278,7 @@ create_archive() {
     # Move Archive
     ########################################################
 
-    echo "Moving archive..."
+    log_info "Moving archive..."
 
     mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
 
@@ -274,22 +290,22 @@ create_archive() {
 
         chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
 
-        echo "Archive moved successfully."
+        log_info "Archive moved successfully."
 
         ####################################################
         # Delete Source Files
         ####################################################
 
-        echo "Deleting source log files..."
+        log_warning "Deleting source log files..."
 
         rm -f "${FILES[@]}"
 
-        echo "Completed."
+        log_info "Completed."
 
     else
 
-        echo "ERROR : Failed to move archive."
-        echo "Source files will NOT be deleted."
+        log_error "Failed to move archive."
+        log_info "Source files will NOT be deleted."
 
         return 1
 
@@ -319,18 +335,6 @@ process_archive_by_date() {
     echo "Archive         : $ARCHIVE_NAME"
     echo "============================================================"
 
-    ########################################################
-    # Archive already exists in destination
-    ########################################################
-
-    if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
-
-        echo "Archive already exists."
-        echo "Skipping..."
-
-        return
-
-    fi
 
     ########################################################
     # Get files for this date
@@ -340,7 +344,7 @@ process_archive_by_date() {
 
     if [[ ${#FILES[@]} -eq 0 ]]; then
 
-        echo "No files found on this ${DATE}."
+        log_info "No files found on this ${DATE}."
 
         return
 
@@ -351,10 +355,52 @@ process_archive_by_date() {
     ########################################################
 
     echo
-    echo "Files being archived (${#FILES[@]}):"
+    log_info "Files being archived (${#FILES[@]}):"
     echo
 
     printf '    %s\n' "${FILES[@]}"
+
+    ########################################################
+    # Archive already exists in destination
+    ########################################################
+
+    if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
+
+        log_info "Archive already exists in the destination on this ${DATE}."
+
+        #---------------------------------------------------
+        # Verify existing destination archive
+        #---------------------------------------------------
+
+        if ! verify_archive "$DEST_DIR/$ARCHIVE_NAME"; then
+
+            log_error "Existing archive does not match source files."
+            log_error "Source files will NOT be deleted."
+
+            return 1
+
+        fi
+
+        #---------------------------------------------------
+        # Existing archive is valid
+        #---------------------------------------------------
+
+        log_info "Existing archive matches all source files."
+
+        #---------------------------------------------------
+        # Delete source files
+        #---------------------------------------------------
+
+        log_warning "Deleting source files..."
+
+        rm -f "${FILES[@]}"
+
+        log_info "Source files deleted successfully."
+        log_info "Archive processing completed."
+
+        return 0
+
+    fi
 
     ########################################################
     # Recovery if Archive exist in the source
@@ -369,7 +415,6 @@ process_archive_by_date() {
         return
 
     fi
-
 
     ########################################################
     # Create Archive if not in source or destination
@@ -404,13 +449,12 @@ archive_component() {
     ########################################################
 
     if [[ ! -d "$SRC_DIR" ]]; then
-        echo "ERROR: Source directory not found: $SRC_DIR"
-        echo "Skipping component."
+        log_error "Source directory not found: $SRC_DIR"
+        log_info "Skipping component."
         return
     fi
     
-    echo
-    echo "Source directory found."
+    log_info "Source directory found."
     cd "$SRC_DIR"
 
     ########################################################
@@ -418,11 +462,10 @@ archive_component() {
     ########################################################
 
     if [[ ! -d "$DEST_DIR" ]]; then
-        echo "Destination directory does not exist. Creating..."
+        log_info "Destination directory does not exist. Creating..."
         mkdir -p "$DEST_DIR"
     else
-        echo
-        echo "Destination directory exists."
+        log_info "Destination directory exists."
     fi
 
     ########################################################
@@ -430,12 +473,12 @@ archive_component() {
     ########################################################
 
     echo
-    echo "Searching logs using filename date (older than or equal to $DAYS days)..."
+    log_info "Searching logs using filename date (older than or equal to $DAYS days)..."
 
     find_and_group_logs "$COMPONENT" "$CUTOFF_DATE"
 
     if [[ ${#FILE_GROUPS[@]} -eq 0 ]]; then
-        echo "No eligible logs found."
+        log_info "No eligible logs found."
         return
     fi
 
@@ -454,7 +497,7 @@ archive_component() {
     done < <(printf '%s\n' "${!FILE_GROUPS[@]}" | sort)
 
     echo
-    echo "Finished component : $COMPONENT"
+    log_info "Finished component : $COMPONENT"
 }
 
 ############################################################
