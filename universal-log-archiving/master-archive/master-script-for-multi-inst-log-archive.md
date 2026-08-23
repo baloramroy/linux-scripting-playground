@@ -144,6 +144,7 @@ verify_archive() {
     local FILE
 
     log_info "Verifying archive contents..."
+    echo
 
     ########################################################
     # Verify archive integrity
@@ -184,7 +185,56 @@ verify_archive() {
 
     done
 
+    echo
     log_info "All source files verified in archive."
+
+    return 0
+}
+
+
+############################################################
+# Handle Existing Destination Archive and remove source
+############################################################
+
+handle_existing_destination_archive() {
+
+    local ARCHIVE_NAME="$1"
+    local DEST_DIR="$2"
+    local DATE="$3"
+
+    echo
+    log_info "Archive already exists in the destination on this ${DATE}."
+
+    #-------------------------------------------------------
+    # Verify existing destination archive
+    #-------------------------------------------------------
+
+    if ! verify_archive "$DEST_DIR/$ARCHIVE_NAME"; then
+
+        log_error "Existing archive does not match source files."
+        log_error "Source files will NOT be deleted."
+
+        return 1
+
+    fi
+
+    #-------------------------------------------------------
+    # Existing archive is valid
+    #-------------------------------------------------------
+
+    log_info "Existing archive matches all source files."
+
+    #-------------------------------------------------------
+    # Delete source files
+    #-------------------------------------------------------
+
+    echo
+    log_warning "Deleting source files..."
+
+    rm -f "${FILES[@]}"
+
+    log_info "Source files deleted successfully."
+    log_info "Archive processing completed."
 
     return 0
 }
@@ -200,6 +250,7 @@ recover_archive() {
     local DEST_DIR="$2"
 
     echo
+    log_info "Existing Archive found in the source directiory on this ${DATE} date...."
     log_info "Recovery mode detected."
 
     ########################################################
@@ -340,7 +391,10 @@ process_archive_by_date() {
     # Get files for this date
     ########################################################
 
-    read -ra FILES <<< "${FILE_GROUPS[$DATE]}"
+    #read -ra FILES <<< "${FILE_GROUPS[$DATE]}"
+    mapfile -t FILES < <(
+        printf '%s\n' ${FILE_GROUPS[$DATE]} | sort -V
+    )
 
     if [[ ${#FILES[@]} -eq 0 ]]; then
 
@@ -351,7 +405,7 @@ process_archive_by_date() {
     fi
 
     ########################################################
-    # Show files
+    # Show files which going to archive
     ########################################################
 
     echo
@@ -360,47 +414,22 @@ process_archive_by_date() {
 
     printf '    %s\n' "${FILES[@]}"
 
+
     ########################################################
-    # Archive already exists in destination
+    # If archive already exists in destination
     ########################################################
 
     if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
 
-        log_info "Archive already exists in the destination on this ${DATE}."
+        handle_existing_destination_archive \
+            "$ARCHIVE_NAME" \
+            "$DEST_DIR" \
+            "$DATE"
 
-        #---------------------------------------------------
-        # Verify existing destination archive
-        #---------------------------------------------------
-
-        if ! verify_archive "$DEST_DIR/$ARCHIVE_NAME"; then
-
-            log_error "Existing archive does not match source files."
-            log_error "Source files will NOT be deleted."
-
-            return 1
-
-        fi
-
-        #---------------------------------------------------
-        # Existing archive is valid
-        #---------------------------------------------------
-
-        log_info "Existing archive matches all source files."
-
-        #---------------------------------------------------
-        # Delete source files
-        #---------------------------------------------------
-
-        log_warning "Deleting source files..."
-
-        rm -f "${FILES[@]}"
-
-        log_info "Source files deleted successfully."
-        log_info "Archive processing completed."
-
-        return 0
+        return $?
 
     fi
+
 
     ########################################################
     # Recovery if Archive exist in the source
