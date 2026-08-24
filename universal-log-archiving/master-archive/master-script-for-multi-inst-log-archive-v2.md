@@ -46,6 +46,79 @@ declare -A DEST_DIRS=(
     ["dmscore-nagad-app7"]="/LOGS/app7/dmscore"
 )
 
+
+############################################################
+# Configuration Validation
+############################################################
+
+validate_configuration() {
+
+    local COMPONENT
+    local SRC_DIR
+    local DEST_DIR
+
+    log_info "Validating component configuration..."
+
+    #-------------------------------------------------------
+    # Validate every source component
+    #-------------------------------------------------------
+
+    for COMPONENT in "${!SRC_DIRS[@]}"
+    do
+
+        SRC_DIR="${SRC_DIRS[$COMPONENT]}"
+
+        if [[ -z "$SRC_DIR" ]]; then
+
+            log_error "Source directory is empty for component: $COMPONENT"
+
+            return 1
+
+        fi
+
+        if [[ -z "${DEST_DIRS[$COMPONENT]+x}" ]]; then
+
+            log_error "Destination directory is not configured for component: $COMPONENT"
+
+            return 1
+
+        fi
+
+        DEST_DIR="${DEST_DIRS[$COMPONENT]}"
+
+        if [[ -z "$DEST_DIR" ]]; then
+
+            log_error "Destination directory is empty for component: $COMPONENT"
+
+            return 1
+
+        fi
+
+    done
+
+    #-------------------------------------------------------
+    # Validate every destination component
+    #-------------------------------------------------------
+
+    for COMPONENT in "${!DEST_DIRS[@]}"
+    do
+
+        if [[ -z "${SRC_DIRS[$COMPONENT]+x}" ]]; then
+
+            log_error "Source directory is not configured for component: $COMPONENT"
+
+            return 1
+
+        fi
+
+    done
+
+    log_info "Component configuration validation successful."
+
+    return 0
+}
+
+
 ############################################################
 # Lock
 ############################################################
@@ -111,9 +184,9 @@ find_and_group_logs() {
 
     shopt -s nullglob
 
-    ########################################################
+    #-------------------------------------------------------
     # Group logs by filename date
-    ########################################################
+    #-------------------------------------------------------
 
     for file in "${COMPONENT}"-INST_*-*.log.gz
     do
@@ -140,19 +213,20 @@ find_and_group_logs() {
 verify_archive() {
 
     local ARCHIVE_NAME="$1"
+    local FILES_ARRAY="$2"
 
     # local -n —> Creates a reference to an EXISTING array
     # References the array PASSED BY NAME
-    local -n FILES_REF="$2"
+    local -n FILES_REF="$FILES_ARRAY"
 
     local FILE
 
     log_info "Verifying archive contents..."
     echo
 
-    ########################################################
+    #-------------------------------------------------------
     # Verify archive integrity
-    ########################################################
+    #-------------------------------------------------------
 
     if ! tar -tzf "$ARCHIVE_NAME" >/dev/null 2>&1; then
 
@@ -162,15 +236,15 @@ verify_archive() {
 
     fi
 
-    ########################################################
+    #-------------------------------------------------------
     # Read archive contents once
-    ########################################################
+    #-------------------------------------------------------
 
     mapfile -t ARCHIVE_FILES < <(tar -tzf "$ARCHIVE_NAME")
 
-    ########################################################
+    #-------------------------------------------------------
     # Verify every source file exists in archive
-    ########################################################
+    #-------------------------------------------------------
 
     for FILE in "${FILES_REF[@]}"
     do
@@ -205,10 +279,12 @@ handle_existing_destination_archive() {
     local ARCHIVE_NAME="$1"
     local DEST_DIR="$2"
     local DATE="$3"
-    
+    local FILES_ARRAY="$4"
+
     # local -n —> Creates a reference to an EXISTING array
     # References the array PASSED BY NAME
-    local -n FILES_REF="$4"
+    local -n FILES_REF="$FILES_ARRAY"
+
 
     echo
     log_info "Archive already exists in the destination on this ${DATE}."
@@ -217,7 +293,7 @@ handle_existing_destination_archive() {
     # Verify existing destination archive
     #-------------------------------------------------------
 
-    if ! verify_archive "$DEST_DIR/$ARCHIVE_NAME" FILES_REF; then
+    if ! verify_archive "$DEST_DIR/$ARCHIVE_NAME" "$FILES_ARRAY"; then
 
         log_error "Existing archive does not match source files."
         log_error "Source files will NOT be deleted."
@@ -256,20 +332,21 @@ recover_archive() {
 
     local ARCHIVE_NAME="$1"
     local DEST_DIR="$2"
+    local FILES_ARRAY="$3"
 
     # local -n —> Creates a reference to an EXISTING array
     # References the array PASSED BY NAME
-    local -n FILES_REF="$3"
+    local -n FILES_REF="$FILES_ARRAY"
 
     echo
     log_info "Existing Archive found in the source directiory on this ${DATE} date...."
     log_info "Recovery mode detected."
 
-    ########################################################
+    #-------------------------------------------------------
     # Verify Archive
-    ########################################################
+    #-------------------------------------------------------
 
-    if ! verify_archive "$ARCHIVE_NAME" FILES_REF; then
+    if ! verify_archive "$ARCHIVE_NAME" "$FILES_ARRAY"; then
 
         log_error "Recovery verification failed."
         log_error "Source files will NOT be deleted."
@@ -278,9 +355,9 @@ recover_archive() {
 
     fi
 
-    ########################################################
+    #-------------------------------------------------------
     # Move verified archive
-    ########################################################
+    #-------------------------------------------------------
 
     log_info "Moving existing archive..."
 
@@ -288,9 +365,9 @@ recover_archive() {
 
     chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
 
-    ########################################################
+    #-------------------------------------------------------
     # Delete source files
-    ########################################################
+    #-------------------------------------------------------
     
     log_warning "Deleting source logs..."
 
@@ -310,14 +387,15 @@ create_archive() {
 
     local ARCHIVE_NAME="$1"
     local DEST_DIR="$2"
+    local FILES_ARRAY="$3"
     
     # local -n —> Creates a reference to an EXISTING array
     # References the array PASSED BY NAME
-    local -n FILES_REF="$3"
+    local -n FILES_REF="$FILES_ARRAY"
 
-    ########################################################
+    #-------------------------------------------------------
     # Create Archive
-    ########################################################
+    #-------------------------------------------------------
 
     echo
     log_info "Creating archive..."
@@ -326,11 +404,11 @@ create_archive() {
 
     log_info "Archive created."
 
-    ########################################################
+    #-------------------------------------------------------
     # Verify Archive
-    ########################################################
+    #-------------------------------------------------------
 
-    if ! verify_archive "$ARCHIVE_NAME" FILES_REF; then
+    if ! verify_archive "$ARCHIVE_NAME" "$FILES_ARRAY"; then
 
         log_error "Archive verification failed."
         log_info "Source files will NOT be deleted."
@@ -341,17 +419,17 @@ create_archive() {
 
     fi
 
-    ########################################################
+    #-------------------------------------------------------
     # Move Archive
-    ########################################################
+    #-------------------------------------------------------
 
     log_info "Moving archive..."
 
     mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
 
-    ########################################################
+    #-------------------------------------------------------
     # Verify Destination
-    ########################################################
+    #-------------------------------------------------------
 
     if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
 
@@ -359,9 +437,9 @@ create_archive() {
 
         log_info "Archive moved successfully."
 
-        ####################################################
+        #---------------------------------------------------
         # Delete Source Files
-        ####################################################
+        #---------------------------------------------------
 
         log_warning "Deleting source log files..."
 
@@ -407,9 +485,9 @@ process_archive_by_date() {
     echo "============================================================"
 
 
-    ########################################################
+    #-------------------------------------------------------
     # Get files for this date
-    ########################################################
+    #-------------------------------------------------------
 
     #read -ra FILES <<< "${FILE_GROUPS[$DATE]}"
     mapfile -t FILES < <(
@@ -424,9 +502,9 @@ process_archive_by_date() {
 
     fi
 
-    ########################################################
+    #-------------------------------------------------------
     # Show files which going to archive
-    ########################################################
+    #-------------------------------------------------------
 
     echo
     log_info "Files being archived (${#FILES[@]}):"
@@ -435,9 +513,9 @@ process_archive_by_date() {
     printf '    %s\n' "${FILES[@]}"
 
 
-    ########################################################
+    #-------------------------------------------------------
     # If archive already exists in destination
-    ########################################################
+    #-------------------------------------------------------
 
     if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
 
@@ -452,9 +530,9 @@ process_archive_by_date() {
     fi
 
 
-    ########################################################
+    #-------------------------------------------------------
     # Recovery if Archive exist in the source
-    ########################################################
+    #-------------------------------------------------------
 
     if [[ -f "$ARCHIVE_NAME" ]]; then
 
@@ -467,9 +545,9 @@ process_archive_by_date() {
 
     fi
 
-    ########################################################
+    #-------------------------------------------------------
     # Create Archive if not in source or destination
-    ########################################################
+    #-------------------------------------------------------
 
     create_archive \
         "$ARCHIVE_NAME" \
@@ -496,9 +574,9 @@ archive_component() {
     echo "Destination    : $DEST_DIR"
     echo "############################################################"
 
-    ########################################################
+    #-------------------------------------------------------
     # Validate Source
-    ########################################################
+    #-------------------------------------------------------
 
     if [[ ! -d "$SRC_DIR" ]]; then
         log_error "Source directory not found: $SRC_DIR"
@@ -509,9 +587,9 @@ archive_component() {
     log_info "Source directory found."
     cd "$SRC_DIR"
 
-    ########################################################
+    #-------------------------------------------------------
     # Ensure destination exists
-    ########################################################
+    #-------------------------------------------------------
 
     if [[ ! -d "$DEST_DIR" ]]; then
         log_info "Destination directory does not exist. Creating..."
@@ -520,9 +598,9 @@ archive_component() {
         log_info "Destination directory exists."
     fi
 
-    ########################################################
+    #-------------------------------------------------------
     # Find and Group Log Files
-    ########################################################
+    #-------------------------------------------------------
 
     echo
     log_info "Searching logs using filename date (older than or equal to $DAYS days)..."
@@ -534,9 +612,9 @@ archive_component() {
         return
     fi
 
-    ########################################################
+    #-------------------------------------------------------
     # Process each date
-    ########################################################
+    #-------------------------------------------------------
 
     while IFS= read -r DATE
     do
@@ -562,6 +640,19 @@ echo "Log Archive Started"
 echo "Retention (Filename Date): $DAYS days"
 echo "Cutoff Date              : $CUTOFF_DATE"
 echo "============================================================"
+
+#-------------------------------------------------------
+# Validate Configuration
+#-------------------------------------------------------
+
+if ! validate_configuration; then
+
+    log_error "Configuration validation failed."
+    log_error "Archive process aborted."
+
+    exit 1
+
+fi
 
 while IFS= read -r COMPONENT
 do
