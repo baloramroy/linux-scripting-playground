@@ -76,10 +76,33 @@ log() {
 
 ###############################################################################
 
+#process_running() {
+#    local user="$1"
+#
+#    pgrep -u "$user" >/dev/null 2>&1
+#}
+
+
+# Processes to ignore when checking if a component is "running" —
+# these are login/session/monitoring processes, not the actual app.
+
+#IGNORE_PATTERN='(^|[[:space:]]|/)(-?bash|sh|sshd-session|systemd|\(sd-pam\)|tail|monitorall|monitor|pstat|su)([: ]|$)'
+
+#process_running() {
+#    local user="$1"
+#
+#    pgrep -u "$user" -a 2>/dev/null | grep -Ev "$IGNORE_PATTERN" | grep -q .
+#}
+
+
+IGNORE_PATTERN='(^|/)(-?bash|sh|sshd-session|systemd|\(sd-pam\)|tail|monitorall|monitor|pstat|su)([: ]|$)'
+
 process_running() {
     local user="$1"
-
-    pgrep -u "$user" >/dev/null 2>&1
+    pgrep -u "$user" -a 2>/dev/null \
+      | awk '{$1=""; print substr($0,2)}' \
+      | grep -Ev "$IGNORE_PATTERN" \
+      | grep -q .
 }
 
 ###############################################################################
