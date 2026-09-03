@@ -198,7 +198,7 @@ find_and_group_logs() {
 
             if [[ "$FILE_DATE" < "$CUTOFF_DATE" || "$FILE_DATE" == "$CUTOFF_DATE" ]]; then
 
-                FILE_GROUPS["$FILE_DATE"]+="$file "
+                FILE_GROUPS["$FILE_DATE"]+="$file"$'\n'
 
             fi
         fi
@@ -491,7 +491,7 @@ process_archive_by_date() {
 
     #read -ra FILES <<< "${FILE_GROUPS[$DATE]}"
     mapfile -t FILES < <(
-        printf '%s\n' ${FILE_GROUPS[$DATE]} | sort -V
+        printf '%s' "${FILE_GROUPS[$DATE]}" | sort -V
     )
 
     if [[ ${#FILES[@]} -eq 0 ]]; then
