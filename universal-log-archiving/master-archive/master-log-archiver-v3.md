@@ -53,42 +53,51 @@ declare -A DEST_DIRS=(
 
 validate_configuration() {
 
-    local COMPONENT
-    local SRC_DIR
-    local DEST_DIR
+    local component
+    local src_dir
+    local dest_dir
 
     log_info "Validating component configuration..."
+
+    #-------------------------------------------------------
+    # Validate DAYS Variable
+    #-------------------------------------------------------
+
+    if ! [[ "$DAYS" =~ ^[1-9][0-9]*$ ]]; then
+        log_error "Invalid DAYS value: '$DAYS'. DAYS must be a positive integer."
+        return 1
+    fi
 
     #-------------------------------------------------------
     # Validate every source component
     #-------------------------------------------------------
 
-    for COMPONENT in "${!SRC_DIRS[@]}"
+    for component in "${!SRC_DIRS[@]}"
     do
 
-        SRC_DIR="${SRC_DIRS[$COMPONENT]}"
+        src_dir="${SRC_DIRS[$component]}"
 
-        if [[ -z "$SRC_DIR" ]]; then
+        if [[ -z "$src_dir" ]]; then
 
-            log_error "Source directory is empty for component: $COMPONENT"
-
-            return 1
-
-        fi
-
-        if [[ -z "${DEST_DIRS[$COMPONENT]+x}" ]]; then
-
-            log_error "Destination directory is not configured for component: $COMPONENT"
+            log_error "Source directory is empty for component: $component"
 
             return 1
 
         fi
 
-        DEST_DIR="${DEST_DIRS[$COMPONENT]}"
+        if [[ -z "${DEST_DIRS[$component]+x}" ]]; then
 
-        if [[ -z "$DEST_DIR" ]]; then
+            log_error "Destination directory is not configured for component: $component"
 
-            log_error "Destination directory is empty for component: $COMPONENT"
+            return 1
+
+        fi
+
+        dest_dir="${DEST_DIRS[$component]}"
+
+        if [[ -z "$dest_dir" ]]; then
+
+            log_error "Destination directory is empty for component: $component"
 
             return 1
 
@@ -100,12 +109,12 @@ validate_configuration() {
     # Validate every destination component
     #-------------------------------------------------------
 
-    for COMPONENT in "${!DEST_DIRS[@]}"
+    for component in "${!DEST_DIRS[@]}"
     do
 
-        if [[ -z "${SRC_DIRS[$COMPONENT]+x}" ]]; then
+        if [[ -z "${SRC_DIRS[$component]+x}" ]]; then
 
-            log_error "Source directory is not configured for component: $COMPONENT"
+            log_error "Source directory is not configured for component: $component"
 
             return 1
 
@@ -228,19 +237,24 @@ verify_archive() {
     # Verify archive integrity
     #-------------------------------------------------------
 
-    if ! tar -tzf "$ARCHIVE_NAME" >/dev/null 2>&1; then
+    #if ! tar -tzf "$ARCHIVE_NAME" >/dev/null 2>&1; then
 
-        log_error "Archive is corrupted or cannot be read."
+    #    log_error "Archive is corrupted or cannot be read."
 
-        return 1
+    #    return 1
 
-    fi
+    #fi
 
     #-------------------------------------------------------
     # Read archive contents once
     #-------------------------------------------------------
 
-    mapfile -t ARCHIVE_FILES < <(tar -tzf "$ARCHIVE_NAME")
+    #mapfile -t ARCHIVE_FILES < <(tar -tzf "$ARCHIVE_NAME")
+
+    mapfile -t ARCHIVE_FILES < <(tar -tzf "$ARCHIVE_NAME") || {
+        log_error "Archive is corrupted or cannot be read."
+        return 1
+    }
 
     #-------------------------------------------------------
     # Verify every source file exists in archive
