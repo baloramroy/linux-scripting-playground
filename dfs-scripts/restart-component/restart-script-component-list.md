@@ -31,6 +31,22 @@ COMPONENTS=(
 )
 ```
 
+## Txn-Hist component list:
+
+```bash
+COMPONENTS=(
+    apigw
+    davs
+    portal_davs
+    dfs
+    portal_dfs
+    extch
+    apigw-summary
+    bkofc-summary
+)
+```
+
+
 ## USSD component list:
 
 ```bash
@@ -43,3 +59,29 @@ COMPONENTS=(
     outboundproxy
 )
 ```
+
+## Web GW component list:
+
+```bash
+COMPONENTS=(
+    awsgw
+    dmsgw
+    sysgw
+    callcentergw
+    rpgweb
+)
+```
+
+## Web Core component list:
+
+```bash
+COMPONENTS=(
+    accs
+    auth
+    dmscore
+    syscore
+    callcentercore
+    report
+)
+```
+
