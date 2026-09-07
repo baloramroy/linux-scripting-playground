@@ -347,7 +347,8 @@ recover_archive() {
 
     local ARCHIVE_NAME="$1"
     local DEST_DIR="$2"
-    local FILES_ARRAY="$3"
+    local DATE="$3"
+    local FILES_ARRAY="$4"
 
     # local -n —> Creates a reference to an EXISTING array
     # References the array PASSED BY NAME
@@ -554,9 +555,10 @@ process_archive_by_date() {
         recover_archive \
             "$ARCHIVE_NAME" \
             "$DEST_DIR" \
+            "$DATE" \
             FILES
 
-        return
+        return $?
 
     fi
 
@@ -689,10 +691,11 @@ if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
     exit 1
 fi
 
-exit 0
-
 echo
 echo "============================================================"
 echo "All components processed successfully."
 echo "============================================================"
+
+exit 0
+
 ```
