@@ -27,10 +27,16 @@ SUCCESSFUL_COMPONENTS=0
 FAILED_COMPONENTS=0
 FAILED_COMPONENTS_LIST=""
 
+ARCHIVES_CREATED=0
+ARCHIVES_RECOVERED=0
+ARCHIVES_EXISTING=0
+
 START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 
 LOG_DIR="/home/scripts/logs/log_archive"
 LOG_FILE="$LOG_DIR/log_archive_$(date +%Y-%m-%d_%H%M%S).log"
+
+ARCHIVE_RESULT_FILE="/tmp/log_archive_result_$$"
 
 declare -A FILE_GROUPS=()
 # Declaring outside the function so that both functions can access it.
@@ -330,6 +336,8 @@ handle_existing_destination_archive() {
     log_info "Source files deleted successfully."
     log_info "Archive processing completed."
 
+    COMP_ARCHIVES_EXISTING=$((COMP_ARCHIVES_EXISTING + 1))
+
     return 0
 }
 
@@ -385,6 +393,8 @@ recover_archive() {
     rm -f "${FILES_REF[@]}"
 
     log_info "Recovery completed."
+
+    COMP_ARCHIVES_RECOVERED=$((COMP_ARCHIVES_RECOVERED + 1))
 
     return 0
 }
@@ -457,6 +467,8 @@ create_archive() {
         rm -f "${FILES_REF[@]}"
 
         log_info "Completed."
+        
+        COMP_ARCHIVES_CREATED=$((COMP_ARCHIVES_CREATED + 1))
 
     else
 
@@ -580,6 +592,10 @@ archive_component() {
         local SRC_DIR="$2"
         local DEST_DIR="$3"
 
+        local COMP_ARCHIVES_CREATED=0
+        local COMP_ARCHIVES_RECOVERED=0
+        local COMP_ARCHIVES_EXISTING=0
+
         echo
         echo "############################################################"
         echo "Component      : $COMPONENT"
@@ -641,6 +657,13 @@ archive_component() {
 
         echo
         log_info "Finished component : $COMPONENT"
+
+        printf '%s|%s|%s|%s\n' \
+            "$COMPONENT" \
+            "$COMP_ARCHIVES_CREATED" \
+            "$COMP_ARCHIVES_RECOVERED" \
+            "$COMP_ARCHIVES_EXISTING" \
+            >> "$ARCHIVE_RESULT_FILE"
     )
 
 
@@ -687,8 +710,32 @@ do
     else
 
         FAILED_COMPONENTS=$((FAILED_COMPONENTS + 1))
-        FAILED_COMPONENTS_LIST+="$COMPONENT "
+        FAILED_COMPONENTS_LIST+="$COMPONENT, "
         ARCHIVE_FAILED=1
+
+    fi
+
+    #-------------------------------------------------------
+    # Collect archive counters from component subshell
+    #-------------------------------------------------------
+
+    if [[ -f "$ARCHIVE_RESULT_FILE" ]]; then
+
+        while IFS='|' read -r RESULT_COMPONENT CREATED RECOVERED EXISTING
+        do
+
+            if [[ "$RESULT_COMPONENT" == "$COMPONENT" ]]; then
+
+                ARCHIVES_CREATED=$((ARCHIVES_CREATED + CREATED))
+                ARCHIVES_RECOVERED=$((ARCHIVES_RECOVERED + RECOVERED))
+                ARCHIVES_EXISTING=$((ARCHIVES_EXISTING + EXISTING))
+
+            fi
+
+        done < "$ARCHIVE_RESULT_FILE"
+
+        # Clear result after processing this component
+        > "$ARCHIVE_RESULT_FILE"
 
     fi
 
@@ -706,9 +753,12 @@ echo "End Time              : $END_TIME"
 echo "Total Components      : $TOTAL_COMPONENTS"
 echo "Successful Components : $SUCCESSFUL_COMPONENTS"
 echo "Failed Components     : $FAILED_COMPONENTS"
+echo "Archives Created      : $ARCHIVES_CREATED"
+echo "Archives Recovered    : $ARCHIVES_RECOVERED"
+echo "Archives Existing     : $ARCHIVES_EXISTING"
 
 if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
-    echo "Failed Component List : $FAILED_COMPONENTS_LIST"
+    echo "Failed Component List : ${FAILED_COMPONENTS_LIST%, }"
 fi
 
 if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
@@ -718,6 +768,8 @@ else
 fi
 
 echo "============================================================"
+
+rm -f "$ARCHIVE_RESULT_FILE"
 
 if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
     exit 1
