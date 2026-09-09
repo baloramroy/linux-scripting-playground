@@ -253,9 +253,13 @@ verify_archive() {
     local -n FILES_REF="$FILES_ARRAY"
 
     local FILE
+    local ARCHIVE_FILE
     local ARCHIVE_OUTPUT
+    local NORMALIZED_FILE
+
     local -a ARCHIVE_FILES=()
     local -a MISSING_FILES=()
+    local -A ARCHIVE_SET=()
 
     echo
     log_info "Verifying archive contents..."
@@ -269,26 +273,24 @@ verify_archive() {
     # 2. Parse archive listing into an array
     mapfile -t ARCHIVE_FILES <<< "$ARCHIVE_OUTPUT"
 
-    # 3. Verify every source file exists in the archive
+    # 3. Build archive lookup set
+    for ARCHIVE_FILE in "${ARCHIVE_FILES[@]}"
+    do
+        NORMALIZED_FILE="${ARCHIVE_FILE#./}"
+        ARCHIVE_SET["$NORMALIZED_FILE"]=1
+    done
+
+    # 4. Check all source files using direct lookup
     for FILE in "${FILES_REF[@]}"
     do
-        local NORMALIZED_FILE="${FILE#./}"
-        local FOUND=0
+        NORMALIZED_FILE="${FILE#./}"
 
-        for ARCHIVE_FILE in "${ARCHIVE_FILES[@]}"
-        do
-            if [[ "${ARCHIVE_FILE#./}" == "$NORMALIZED_FILE" ]]; then
-                FOUND=1
-                break
-            fi
-        done
-
-        if [[ "$FOUND" -eq 0 ]]; then
+        if [[ -z "${ARCHIVE_SET[$NORMALIZED_FILE]+x}" ]]; then
             MISSING_FILES+=("$FILE")
         fi
     done
 
-    # 4. Report missing files
+    # 5. Report missing files
     if [[ ${#MISSING_FILES[@]} -gt 0 ]]; then
         echo
         log_error "File(s) NOT found in archive (${#MISSING_FILES[@]} missing):"
@@ -296,6 +298,7 @@ verify_archive() {
         return 1
     fi
 
+    echo
     log_info "All ${#FILES_REF[@]} source files verified in archive."
     return 0
 }
