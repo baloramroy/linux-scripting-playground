@@ -163,23 +163,30 @@ mkdir -p "$LOG_DIR"
 exec >> "$LOG_FILE" 2>&1
 
 
+log_timestamp() {
+
+    date '+%Y-%m-%d %H:%M:%S'
+
+}
+
+
 log_info() {
 
-    echo "[INFO] $*"
+    echo "[$(log_timestamp)] [INFO] $*"
 
 }
 
 
 log_warning() {
 
-    echo "[WARNING] $*"
+    echo "[$(log_timestamp)] [WARNING] $*"
 
 }
 
 
 log_error() {
 
-    echo "[ERROR] $*"
+    echo "[$(log_timestamp)] [ERROR] $*"
 
 }
 
