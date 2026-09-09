@@ -428,7 +428,14 @@ create_archive() {
     echo
     log_info "Creating archive..."
 
-    tar -czf "$ARCHIVE_NAME" "${FILES_REF[@]}"
+    if ! tar -czf "$ARCHIVE_NAME" "${FILES_REF[@]}"; then
+
+        log_error "Failed to create archive: $ARCHIVE_NAME"
+        log_info "Source files will NOT be deleted."
+
+        return 1
+
+    fi
 
     log_info "Archive created."
 
@@ -602,6 +609,7 @@ archive_component() {
         local COMP_ARCHIVES_CREATED=0
         local COMP_ARCHIVES_RECOVERED=0
         local COMP_ARCHIVES_EXISTING=0
+        local COMPONENT_PROCESS_FAILED=0
 
         echo
         echo "############################################################"
@@ -655,10 +663,16 @@ archive_component() {
         while IFS= read -r DATE
         do
 
-            process_archive_by_date \
+            if ! process_archive_by_date \
                 "$COMPONENT" \
                 "$DATE" \
                 "$DEST_DIR"
+            then
+
+                log_error "Archive processing failed for date: $DATE"
+                COMPONENT_PROCESS_FAILED=1
+
+            fi
 
         done < <(printf '%s\n' "${!FILE_GROUPS[@]}" | sort)
 
@@ -671,6 +685,16 @@ archive_component() {
             "$COMP_ARCHIVES_RECOVERED" \
             "$COMP_ARCHIVES_EXISTING" \
             >> "$ARCHIVE_RESULT_FILE"
+
+
+        if [[ "$COMPONENT_PROCESS_FAILED" -ne 0 ]]; then
+
+            log_error "Component processing failed : $COMPONENT"
+
+            return 1
+
+        fi        
+
     )
 
 
