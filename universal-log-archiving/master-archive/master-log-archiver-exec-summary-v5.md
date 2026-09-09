@@ -19,7 +19,6 @@ set -euo pipefail
 ############################################################
 
 DAYS=3
-LOCK_FILE="/tmp/log_archive.lock"
 
 ARCHIVE_FAILED=0
 TOTAL_COMPONENTS=0
@@ -33,14 +32,22 @@ ARCHIVES_EXISTING=0
 
 START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 
+LOCK_FILE="/tmp/log_archive.lock"
 LOG_DIR="/home/scripts/logs/log_archive"
 LOG_FILE="$LOG_DIR/log_archive_$(date +%Y-%m-%d_%H%M%S).log"
-
 ARCHIVE_RESULT_FILE="/tmp/log_archive_result_$$"
+
+#-----------------------------------------------------------
+# Declaring associative arrays
+#-----------------------------------------------------------
 
 declare -A FILE_GROUPS=()
 # Declaring outside the function so that both functions can access it.
 
+declare -A COMPONENT_CREATED=()
+declare -A COMPONENT_RECOVERED=()
+declare -A COMPONENT_EXISTING=()
+declare -A COMPONENT_STATUS=()
 
 #-----------------------------------------------------------
 # Source Directories
@@ -241,54 +248,55 @@ find_and_group_logs() {
 ############################################################
 
 verify_archive() {
-
     local ARCHIVE_NAME="$1"
     local FILES_ARRAY="$2"
-
-    # local -n —> Creates a reference to an EXISTING array
-    # References the array PASSED BY NAME
     local -n FILES_REF="$FILES_ARRAY"
 
     local FILE
+    local ARCHIVE_OUTPUT
+    local -a ARCHIVE_FILES=()
+    local -a MISSING_FILES=()
 
-    log_info "Verifying archive contents..."
     echo
+    log_info "Verifying archive contents..."
 
-    #-------------------------------------------------------
-    # Read archive contents once
-    #-------------------------------------------------------
-
-    #mapfile -t ARCHIVE_FILES < <(tar -tzf "$ARCHIVE_NAME")
-
-    mapfile -t ARCHIVE_FILES < <(tar -tzf "$ARCHIVE_NAME") || {
-        log_error "Archive is corrupted or cannot be read."
+    # 1. Verify archive readability and capture file listing
+    if ! ARCHIVE_OUTPUT=$(tar -tzf "$ARCHIVE_NAME" 2>&1); then
+        log_error "Archive is corrupted or cannot be read: $ARCHIVE_OUTPUT"
         return 1
-    }
+    fi
 
-    #-------------------------------------------------------
-    # Verify every source file exists in archive
-    #-------------------------------------------------------
+    # 2. Parse archive listing into an array
+    mapfile -t ARCHIVE_FILES <<< "$ARCHIVE_OUTPUT"
 
+    # 3. Verify every source file exists in the archive
     for FILE in "${FILES_REF[@]}"
     do
+        local NORMALIZED_FILE="${FILE#./}"
+        local FOUND=0
 
-        if printf '%s\n' "${ARCHIVE_FILES[@]}" | grep -Fx "$FILE" >/dev/null 2>&1; then
+        for ARCHIVE_FILE in "${ARCHIVE_FILES[@]}"
+        do
+            if [[ "${ARCHIVE_FILE#./}" == "$NORMALIZED_FILE" ]]; then
+                FOUND=1
+                break
+            fi
+        done
 
-            log_info "Verified in archive : $FILE"
-
-        else
-
-            log_error "File NOT found in archive : $FILE"
-
-            return 1
-
+        if [[ "$FOUND" -eq 0 ]]; then
+            MISSING_FILES+=("$FILE")
         fi
-
     done
 
-    echo
-    log_info "All source files verified in archive."
+    # 4. Report missing files
+    if [[ ${#MISSING_FILES[@]} -gt 0 ]]; then
+        echo
+        log_error "File(s) NOT found in archive (${#MISSING_FILES[@]} missing):"
+        printf '    [MISSING] %s\n' "${MISSING_FILES[@]}"
+        return 1
+    fi
 
+    log_info "All ${#FILES_REF[@]} source files verified in archive."
     return 0
 }
 
@@ -318,6 +326,7 @@ handle_existing_destination_archive() {
 
     if ! verify_archive "$DEST_DIR/$ARCHIVE_NAME" "$FILES_ARRAY"; then
 
+        echo
         log_error "Existing archive does not match source files."
         log_error "Source files will NOT be deleted."
 
@@ -373,12 +382,21 @@ recover_archive() {
     #-------------------------------------------------------
 
     if ! verify_archive "$ARCHIVE_NAME" "$FILES_ARRAY"; then
-
+        
+        echo
         log_error "Recovery verification failed."
         log_error "Source files will NOT be deleted."
 
-        return 1
+        local CORRUPT_ARCHIVE
+        CORRUPT_ARCHIVE="${ARCHIVE_NAME}.corrupt.$(date '+%Y%m%d_%H%M%S')"
 
+        if mv -f "$ARCHIVE_NAME" "$CORRUPT_ARCHIVE"; then
+            log_warning "Invalid recovery archive quarantined as: $CORRUPT_ARCHIVE"
+        else
+            log_error "Failed to quarantine invalid recovery archive: $ARCHIVE_NAME"
+        fi
+
+        return 1
     fi
 
     #-------------------------------------------------------
@@ -387,7 +405,17 @@ recover_archive() {
 
     log_info "Moving existing archive..."
 
-    mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
+    if ! mv -f "$ARCHIVE_NAME" "$DEST_DIR/"; then
+        log_error "Failed to move recovered archive to destination."
+        log_error "Source files will NOT be deleted."
+        return 1
+    fi
+
+    if [[ ! -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
+        log_error "Recovered archive is not present in destination after move."
+        log_error "Source files will NOT be deleted."
+        return 1
+    fi
 
     chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
 
@@ -399,6 +427,7 @@ recover_archive() {
 
     rm -f "${FILES_REF[@]}"
 
+    log_info "Source files deleted successfully."
     log_info "Recovery completed."
 
     COMP_ARCHIVES_RECOVERED=$((COMP_ARCHIVES_RECOVERED + 1))
@@ -457,7 +486,7 @@ create_archive() {
     #-------------------------------------------------------
     # Move Archive
     #-------------------------------------------------------
-
+    echo
     log_info "Moving archive..."
 
     mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
@@ -476,16 +505,18 @@ create_archive() {
         # Delete Source Files
         #---------------------------------------------------
 
+        echo
         log_warning "Deleting source log files..."
 
         rm -f "${FILES_REF[@]}"
 
-        log_info "Completed."
+        log_info "Source files deleted successfully."
+        log_info "Archive processing completed."
         
         COMP_ARCHIVES_CREATED=$((COMP_ARCHIVES_CREATED + 1))
 
     else
-
+        echo
         log_error "Failed to move archive."
         log_info "Source files will NOT be deleted."
 
@@ -610,6 +641,7 @@ archive_component() {
         local COMP_ARCHIVES_RECOVERED=0
         local COMP_ARCHIVES_EXISTING=0
         local COMPONENT_PROCESS_FAILED=0
+        local COMPONENT_STATUS="SUCCESS"
 
         echo
         echo "############################################################"
@@ -668,9 +700,10 @@ archive_component() {
                 "$DATE" \
                 "$DEST_DIR"
             then
-
+                echo
                 log_error "Archive processing failed for date: $DATE"
                 COMPONENT_PROCESS_FAILED=1
+                COMPONENT_STATUS="FAILED"
 
             fi
 
@@ -679,18 +712,18 @@ archive_component() {
         echo
         log_info "Finished component : $COMPONENT"
 
-        printf '%s|%s|%s|%s\n' \
+        printf '%s|%s|%s|%s|%s\n' \
             "$COMPONENT" \
             "$COMP_ARCHIVES_CREATED" \
             "$COMP_ARCHIVES_RECOVERED" \
             "$COMP_ARCHIVES_EXISTING" \
+            "$COMPONENT_STATUS" \
             >> "$ARCHIVE_RESULT_FILE"
 
 
         if [[ "$COMPONENT_PROCESS_FAILED" -ne 0 ]]; then
 
             log_error "Component processing failed : $COMPONENT"
-
             return 1
 
         fi        
@@ -746,13 +779,13 @@ do
 
     fi
 
-    #-------------------------------------------------------
-    # Collect archive counters from component subshell
-    #-------------------------------------------------------
+    #-------------------------------------------------------------
+    # Collect archive counters and status from component subshell
+    #-------------------------------------------------------------
 
     if [[ -f "$ARCHIVE_RESULT_FILE" ]]; then
 
-        while IFS='|' read -r RESULT_COMPONENT CREATED RECOVERED EXISTING
+        while IFS='|' read -r RESULT_COMPONENT CREATED RECOVERED EXISTING STATUS
         do
 
             if [[ "$RESULT_COMPONENT" == "$COMPONENT" ]]; then
@@ -760,6 +793,11 @@ do
                 ARCHIVES_CREATED=$((ARCHIVES_CREATED + CREATED))
                 ARCHIVES_RECOVERED=$((ARCHIVES_RECOVERED + RECOVERED))
                 ARCHIVES_EXISTING=$((ARCHIVES_EXISTING + EXISTING))
+
+                COMPONENT_CREATED["$RESULT_COMPONENT"]="$CREATED"
+                COMPONENT_RECOVERED["$RESULT_COMPONENT"]="$RECOVERED"
+                COMPONENT_EXISTING["$RESULT_COMPONENT"]="$EXISTING"
+                COMPONENT_STATUS["$RESULT_COMPONENT"]="$STATUS"
 
             fi
 
@@ -775,30 +813,64 @@ done < <(printf '%s\n' "${!SRC_DIRS[@]}" | sort)
 
 END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 
+#-------------------------------------------------------
+# Execution Summary Start from Here
+#-------------------------------------------------------
+
 echo
-echo "============================================================"
+echo "======================================================================"
 echo "Archive Execution Summary"
-echo "============================================================"
-echo "Start Time            : $START_TIME"
-echo "End Time              : $END_TIME"
-echo "Total Components      : $TOTAL_COMPONENTS"
-echo "Successful Components : $SUCCESSFUL_COMPONENTS"
-echo "Failed Components     : $FAILED_COMPONENTS"
-echo "Archives Created      : $ARCHIVES_CREATED"
-echo "Archives Recovered    : $ARCHIVES_RECOVERED"
-echo "Archives Existing     : $ARCHIVES_EXISTING"
+echo "======================================================================"
+echo "Start Time               : $START_TIME"
+echo "End Time                 : $END_TIME"
+echo
+echo "Total Components         : $TOTAL_COMPONENTS"
+echo "Successful Components    : $SUCCESSFUL_COMPONENTS"
+echo "Failed Components        : $FAILED_COMPONENTS"
+echo
+echo "Each Component Summary"
+echo "----------------------------------------------------------------------"
+printf "%-22s %8s %11s %10s %10s\n" \
+    "Component" \
+    "Created" \
+    "Recovered" \
+    "Existing" \
+    "Status"
+echo "----------------------------------------------------------------------"
+
+while IFS= read -r COMPONENT
+do
+
+    printf "%-22s %8s %11s %10s %10s\n" \
+        "$COMPONENT" \
+        "${COMPONENT_CREATED[$COMPONENT]:-0}" \
+        "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
+        "${COMPONENT_EXISTING[$COMPONENT]:-0}" \
+        "${COMPONENT_STATUS[$COMPONENT]:-}"
+
+done < <(printf '%s\n' "${!SRC_DIRS[@]}" | sort)
+
+echo "----------------------------------------------------------------------"
+echo
+echo "Total Archives Created   : $ARCHIVES_CREATED"
+echo "Total Archives Recovered : $ARCHIVES_RECOVERED"
+echo "Total Archives Exist     : $ARCHIVES_EXISTING"
 
 if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
-    echo "Failed Component List : ${FAILED_COMPONENTS_LIST%, }"
+    echo "Failed Component List    : ${FAILED_COMPONENTS_LIST%, }"
 fi
 
 if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
-    echo "Overall Status        : FAILED"
+    echo "Overall Status           : FAILED"
 else
-    echo "Overall Status        : SUCCESS"
+    echo "Overall Status           : SUCCESS"
 fi
 
-echo "============================================================"
+echo "======================================================================"
+
+#-------------------------------------------------------
+# Cleanup Result file and Show Exit Status
+#-------------------------------------------------------
 
 rm -f "$ARCHIVE_RESULT_FILE"
 
