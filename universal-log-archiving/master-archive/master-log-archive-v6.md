@@ -41,7 +41,8 @@ ARCHIVE_RESULT_FILE="/tmp/log_archive_result_$$"
 # Declaring associative arrays
 #-----------------------------------------------------------
 
-declare -A FILE_GROUPS=()
+# Remove this line completely
+#declare -A FILE_GROUPS=()
 # Declaring outside the function so that both functions can access it.
 
 declare -A COMPONENT_CREATED=()
@@ -171,14 +172,17 @@ CUTOFF_DATE=$(date -d "$DAYS days ago" +%F)
 find_and_group_logs() {
 
     local COMPONENT="$1"
-    local CUTOFF_DATE="$2"
+    local GROUPS_ARRAY="$2"
+    local CUTOFF_DATE="$3"
+
+    local -n GROUPS_REF="$GROUPS_ARRAY"
 
     local FILE_DATE
 
-    FILE_GROUPS=()
-    # FILE_GROUPS=() - Declaring inside find_and_group_logs() funtion, so that it clears the previous component's groups before processing the next component.
+    GROUPS_REF=()
 
     shopt -s nullglob
+    
 
     #-------------------------------------------------------
     # Group logs by filename date
@@ -194,7 +198,8 @@ find_and_group_logs() {
 
             if [[ "$FILE_DATE" < "$CUTOFF_DATE" || "$FILE_DATE" == "$CUTOFF_DATE" ]]; then
 
-                FILE_GROUPS["$FILE_DATE"]+="$file"$'\n'
+                #FILE_GROUPS["$FILE_DATE"]+="$file"$'\n'
+                GROUPS_REF["$FILE_DATE"]+="$file"$'\n'
 
             fi
         fi
@@ -605,6 +610,8 @@ archive_component() {
         local COMPONENT_PROCESS_FAILED=0
         local COMPONENT_STATUS="SUCCESS"
 
+        local -A FILE_GROUPS=()
+
         echo
         echo "############################################################"
         echo "Component      : $COMPONENT"
@@ -643,7 +650,11 @@ archive_component() {
         echo
         log_info "Searching logs using filename date (older than or equal to $DAYS days)..."
 
-        find_and_group_logs "$COMPONENT" "$CUTOFF_DATE"
+        #find_and_group_logs "$COMPONENT" "$CUTOFF_DATE"
+        find_and_group_logs \
+            "$COMPONENT" \
+            FILE_GROUPS \
+            "$CUTOFF_DATE"
 
         if [[ ${#FILE_GROUPS[@]} -eq 0 ]]; then
             log_info "No eligible logs found."
