@@ -782,7 +782,7 @@ do
 
     fi
 
-done < <(printf '%s\n' "${!SRC_DIRS[@]}" | sort)
+done
 
 
 END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
