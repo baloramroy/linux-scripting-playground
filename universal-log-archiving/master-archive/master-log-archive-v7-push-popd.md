@@ -282,17 +282,15 @@ handle_existing_destination_archive() {
     # References the array PASSED BY NAME
     local -n FILES_REF="$FILES_ARRAY"
 
+    #-------------------------------------------------------
+    # Verify Existing Archive
+    #-------------------------------------------------------
 
     echo
     log_info "Archive already exists in the destination on this ${DATE}."
 
-    #-------------------------------------------------------
-    # Verify existing destination archive
-    #-------------------------------------------------------
-
     if ! verify_archive "$DEST_DIR/$ARCHIVE_NAME" "$FILES_ARRAY"; then
 
-        echo
         log_error "Existing archive does not match source files."
         log_error "Source files will NOT be deleted."
 
@@ -300,25 +298,28 @@ handle_existing_destination_archive() {
 
     fi
 
-    #-------------------------------------------------------
-    # Existing archive is valid
-    #-------------------------------------------------------
-
     log_info "Existing archive matches all source files."
 
+    COMP_ARCHIVES_EXISTING=$((COMP_ARCHIVES_EXISTING + 1))
+
     #-------------------------------------------------------
-    # Delete source files
+    # Delete Source Files
     #-------------------------------------------------------
 
     echo
-    log_warning "Deleting source files..."
+    log_warning "Deleting source log files..."
 
-    rm -f "${FILES_REF[@]}"
+    if ! rm -f "${FILES_REF[@]}"; then
+
+        log_error "Failed to delete one or more source log files."
+        log_error "Existing archive is verified, but source files were NOT completely deleted."
+
+        return 1
+
+    fi
 
     log_info "Source files deleted successfully."
     log_info "Archive processing completed."
-
-    COMP_ARCHIVES_EXISTING=$((COMP_ARCHIVES_EXISTING + 1))
 
     return 0
 }
@@ -339,64 +340,88 @@ recover_archive() {
     # References the array PASSED BY NAME
     local -n FILES_REF="$FILES_ARRAY"
 
+    #-------------------------------------------------------
+    # Recovery Verification
+    #-------------------------------------------------------
+
     echo
-    log_info "Existing Archive found in the source directiory on this ${DATE} date...."
+    log_info "Existing archive found in the source directory on this ${DATE} date."
     log_info "Recovery mode detected."
 
-    #-------------------------------------------------------
-    # Verify Archive
-    #-------------------------------------------------------
-
     if ! verify_archive "$ARCHIVE_NAME" "$FILES_ARRAY"; then
-        
-        echo
+
         log_error "Recovery verification failed."
         log_error "Source files will NOT be deleted."
 
         local CORRUPT_ARCHIVE
         CORRUPT_ARCHIVE="${ARCHIVE_NAME}.corrupt.$(date '+%Y%m%d_%H%M%S')"
 
-        if mv -f "$ARCHIVE_NAME" "$CORRUPT_ARCHIVE"; then
-            log_warning "Invalid recovery archive quarantined as: $CORRUPT_ARCHIVE"
-        else
+        if ! mv -f "$ARCHIVE_NAME" "$CORRUPT_ARCHIVE"; then
             log_error "Failed to quarantine invalid recovery archive: $ARCHIVE_NAME"
+        else
+            log_warning "Invalid recovery archive quarantined as: $CORRUPT_ARCHIVE"
         fi
 
         return 1
+
     fi
 
     #-------------------------------------------------------
-    # Move verified archive
+    # Move Archive
     #-------------------------------------------------------
 
-    log_info "Moving existing archive..."
+    echo
+    log_info "Moving recovered archive..."
 
     if ! mv -f "$ARCHIVE_NAME" "$DEST_DIR/"; then
-        log_error "Failed to move recovered archive to destination."
+
+        log_error "Failed to move recovered archive: $ARCHIVE_NAME"
         log_error "Source files will NOT be deleted."
+
         return 1
+
     fi
 
     if [[ ! -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
-        log_error "Recovered archive is not present in destination after move."
+
+        log_error "Recovered archive is not present in destination after move: $DEST_DIR/$ARCHIVE_NAME"
         log_error "Source files will NOT be deleted."
+
         return 1
+
     fi
 
-    chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
+    log_info "Recovered archive moved successfully."
+
+    COMP_ARCHIVES_RECOVERED=$((COMP_ARCHIVES_RECOVERED + 1))
 
     #-------------------------------------------------------
-    # Delete source files
+    # Set Archive Permissions
     #-------------------------------------------------------
-    
-    log_warning "Deleting source logs..."
 
-    rm -f "${FILES_REF[@]}"
+    if ! chmod 777 "$DEST_DIR/$ARCHIVE_NAME"; then
+        log_warning "Failed to set permissions on archive: $DEST_DIR/$ARCHIVE_NAME"
+        log_warning "Continuing anyway — archive is present and verified."
+    fi
+
+    #-------------------------------------------------------
+    # Delete Source Files
+    #-------------------------------------------------------
+
+    echo
+    log_warning "Deleting source log files..."
+
+    if ! rm -f "${FILES_REF[@]}"; then
+
+        log_error "Failed to delete one or more source log files."
+        log_error "Recovered archive is stored successfully, but source files were NOT completely deleted."
+
+        return 1
+
+    fi
 
     log_info "Source files deleted successfully."
     log_info "Recovery completed."
-
-    COMP_ARCHIVES_RECOVERED=$((COMP_ARCHIVES_RECOVERED + 1))
 
     return 0
 }
@@ -443,7 +468,9 @@ create_archive() {
         log_error "Archive verification failed."
         log_info "Source files will NOT be deleted."
 
-        rm -f "$ARCHIVE_NAME"
+        if ! rm -f "$ARCHIVE_NAME"; then
+            log_error "Failed to remove invalid archive: $ARCHIVE_NAME"
+        fi
 
         return 1
 
@@ -452,43 +479,50 @@ create_archive() {
     #-------------------------------------------------------
     # Move Archive
     #-------------------------------------------------------
+
     echo
     log_info "Moving archive..."
 
-    mv -f "$ARCHIVE_NAME" "$DEST_DIR/"
-
-    #-------------------------------------------------------
-    # Verify Destination
-    #-------------------------------------------------------
-
-    if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
-
-        chmod 777 "$DEST_DIR/$ARCHIVE_NAME"
-
-        log_info "Archive moved successfully."
-
-        #---------------------------------------------------
-        # Delete Source Files
-        #---------------------------------------------------
-
-        echo
-        log_warning "Deleting source log files..."
-
-        rm -f "${FILES_REF[@]}"
-
-        log_info "Source files deleted successfully."
-        log_info "Archive processing completed."
-        
-        COMP_ARCHIVES_CREATED=$((COMP_ARCHIVES_CREATED + 1))
-
-    else
-        echo
-        log_error "Failed to move archive."
+    if ! mv -f "$ARCHIVE_NAME" "$DEST_DIR/"; then
+        log_error "Failed to move archive: $ARCHIVE_NAME"
         log_info "Source files will NOT be deleted."
-
         return 1
-
     fi
+
+    if [[ ! -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
+        log_error "Archive is not present in destination after move: $DEST_DIR/$ARCHIVE_NAME"
+        log_info "Source files will NOT be deleted."
+        return 1
+    fi
+
+    log_info "Archive moved successfully."
+
+    COMP_ARCHIVES_CREATED=$((COMP_ARCHIVES_CREATED + 1))
+
+    #-------------------------------------------------------
+    # Set Archive Permissions
+    #-------------------------------------------------------
+
+    if ! chmod 777 "$DEST_DIR/$ARCHIVE_NAME"; then
+        log_warning "Failed to set permissions on archive: $DEST_DIR/$ARCHIVE_NAME"
+        log_warning "Continuing anyway — archive is present and verified."
+    fi
+
+    #-------------------------------------------------------
+    # Delete Source Files
+    #-------------------------------------------------------
+
+    echo
+    log_warning "Deleting source log files..."
+
+    if ! rm -f "${FILES_REF[@]}"; then
+        log_error "Failed to delete one or more source log files."
+        log_error "Archive was created successfully, but source files were NOT completely deleted."
+        return 1
+    fi
+
+    log_info "Source files deleted successfully."
+    log_info "Archive processing completed."
 
     return 0
 }
@@ -553,11 +587,7 @@ process_archive_by_date() {
 
     if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
 
-        handle_existing_destination_archive \
-            "$ARCHIVE_NAME" \
-            "$DEST_DIR" \
-            "$DATE" \
-            FILES
+        handle_existing_destination_archive "$ARCHIVE_NAME" "$DEST_DIR" "$DATE" FILES
 
         return $?
 
@@ -570,11 +600,7 @@ process_archive_by_date() {
 
     if [[ -f "$ARCHIVE_NAME" ]]; then
 
-        recover_archive \
-            "$ARCHIVE_NAME" \
-            "$DEST_DIR" \
-            "$DATE" \
-            FILES
+        recover_archive "$ARCHIVE_NAME" "$DEST_DIR" "$DATE" FILES
 
         return $?
 
@@ -584,10 +610,9 @@ process_archive_by_date() {
     # Create Archive if not in source or destination
     #-------------------------------------------------------
 
-    create_archive \
-        "$ARCHIVE_NAME" \
-        "$DEST_DIR" \
-        FILES
+    if ! create_archive "$ARCHIVE_NAME" "$DEST_DIR" FILES; then
+        return 1
+    fi
 
 }
 
@@ -667,10 +692,7 @@ archive_component() {
     echo
     log_info "Searching logs using filename date (older than or equal to $DAYS days)..."
 
-    find_and_group_logs \
-        "$COMPONENT" \
-        FILE_GROUPS \
-        "$CUTOFF_DATE"
+    find_and_group_logs "$COMPONENT" FILE_GROUPS "$CUTOFF_DATE"
 
     #-------------------------------------------------------
     # Process eligible logs
@@ -689,11 +711,8 @@ archive_component() {
         while IFS= read -r DATE
         do
 
-            if ! process_archive_by_date \
-                "$COMPONENT" \
-                "$DATE" \
-                "$DEST_DIR"
-            then
+            if ! process_archive_by_date "$COMPONENT" "$DATE" "$DEST_DIR"; then
+
                 echo
                 log_error "Archive processing failed for date: $DATE"
 
@@ -779,11 +798,7 @@ do
 
     TOTAL_COMPONENTS=$((TOTAL_COMPONENTS + 1))
 
-    if archive_component \
-        "$COMPONENT" \
-        "$SRC_DIR" \
-        "$DEST_DIR"
-    then
+    if archive_component "$COMPONENT" "$SRC_DIR" "$DEST_DIR"; then
 
         SUCCESSFUL_COMPONENTS=$((SUCCESSFUL_COMPONENTS + 1))
 
@@ -817,12 +832,9 @@ echo "Failed Components        : $FAILED_COMPONENTS"
 echo
 echo "Each Component Summary"
 echo "----------------------------------------------------------------------"
-printf "%-22s %8s %11s %10s %10s\n" \
-    "Component" \
-    "Created" \
-    "Recovered" \
-    "Existing" \
-    "Status"
+
+printf "%-22s %8s %11s %10s %10s\n" "Component" "Created" "Recovered" "Existing" "Status"
+
 echo "----------------------------------------------------------------------"
 
 for COMPONENT_ENTRY in "${COMPONENTS[@]}"
