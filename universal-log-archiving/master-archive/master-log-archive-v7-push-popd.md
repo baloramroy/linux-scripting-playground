@@ -35,7 +35,6 @@ START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 LOCK_FILE="/tmp/log_archive.lock"
 LOG_DIR="/home/scripts/logs/log_archive"
 LOG_FILE="$LOG_DIR/log_archive_$(date +%Y-%m-%d_%H%M%S).log"
-ARCHIVE_RESULT_FILE="/tmp/log_archive_result_$$"
 
 #-----------------------------------------------------------
 # Declaring associative arrays
@@ -796,35 +795,6 @@ do
 
     fi
 
-    #-------------------------------------------------------------
-    # Collect archive counters and status from component subshell
-    #-------------------------------------------------------------
-
-    if [[ -f "$ARCHIVE_RESULT_FILE" ]]; then
-
-        while IFS='|' read -r RESULT_COMPONENT CREATED RECOVERED EXISTING STATUS
-        do
-
-            if [[ "$RESULT_COMPONENT" == "$COMPONENT" ]]; then
-
-                ARCHIVES_CREATED=$((ARCHIVES_CREATED + CREATED))
-                ARCHIVES_RECOVERED=$((ARCHIVES_RECOVERED + RECOVERED))
-                ARCHIVES_EXISTING=$((ARCHIVES_EXISTING + EXISTING))
-
-                COMPONENT_CREATED["$RESULT_COMPONENT"]="$CREATED"
-                COMPONENT_RECOVERED["$RESULT_COMPONENT"]="$RECOVERED"
-                COMPONENT_EXISTING["$RESULT_COMPONENT"]="$EXISTING"
-                COMPONENT_STATUS["$RESULT_COMPONENT"]="$STATUS"
-
-            fi
-
-        done < "$ARCHIVE_RESULT_FILE"
-
-        # Clear result after processing this component
-        > "$ARCHIVE_RESULT_FILE"
-
-    fi
-
 done
 
 
@@ -888,10 +858,9 @@ fi
 echo "======================================================================"
 
 #-------------------------------------------------------
-# Cleanup Result file and Show Exit Status
+# Show Exit Status
 #-------------------------------------------------------
 
-rm -f "$ARCHIVE_RESULT_FILE"
 
 if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
     exit 1
