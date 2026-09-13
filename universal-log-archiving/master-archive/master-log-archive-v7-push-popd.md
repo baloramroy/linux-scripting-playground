@@ -599,71 +599,93 @@ process_archive_by_date() {
 
 archive_component() {
 
-    (
-        local COMPONENT="$1"
-        local SRC_DIR="$2"
-        local DEST_DIR="$3"
+    local COMPONENT="$1"
+    local SRC_DIR="$2"
+    local DEST_DIR="$3"
 
-        local COMP_ARCHIVES_CREATED=0
-        local COMP_ARCHIVES_RECOVERED=0
-        local COMP_ARCHIVES_EXISTING=0
-        local COMPONENT_PROCESS_FAILED=0
-        local COMPONENT_STATUS="SUCCESS"
+    local COMP_ARCHIVES_CREATED=0
+    local COMP_ARCHIVES_RECOVERED=0
+    local COMP_ARCHIVES_EXISTING=0
 
-        local -A FILE_GROUPS=()
+    local COMPONENT_PROCESS_FAILED=0
+    local COMPONENT_PROCESS_STATUS="SUCCESS"
 
-        echo
-        echo "############################################################"
-        echo "Component      : $COMPONENT"
-        echo "Source         : $SRC_DIR"
-        echo "Destination    : $DEST_DIR"
-        echo "############################################################"
+    local -A FILE_GROUPS=()
 
-        #-------------------------------------------------------
-        # Validate Source
-        #-------------------------------------------------------
+    echo
+    echo "############################################################"
+    echo "Component      : $COMPONENT"
+    echo "Source         : $SRC_DIR"
+    echo "Destination    : $DEST_DIR"
+    echo "############################################################"
 
-        if [[ ! -d "$SRC_DIR" ]]; then
-            log_error "Source directory not found: $SRC_DIR"
-            log_info "Skipping component."
-            return 1
-        fi
-        
-        log_info "Source directory found."
-        cd "$SRC_DIR"
+    #-------------------------------------------------------
+    # Validate Source
+    #-------------------------------------------------------
 
-        #-------------------------------------------------------
-        # Ensure destination exists
-        #-------------------------------------------------------
+    if [[ ! -d "$SRC_DIR" ]]; then
+        log_error "Source directory not found: $SRC_DIR"
+        log_info "Skipping component."
 
-        if [[ ! -d "$DEST_DIR" ]]; then
-            log_info "Destination directory does not exist. Creating..."
-            mkdir -p "$DEST_DIR"
-        else
-            log_info "Destination directory exists."
-        fi
+        COMPONENT_STATUS["$COMPONENT"]="FAILED"
 
-        #-------------------------------------------------------
-        # Find and Group Log Files
-        #-------------------------------------------------------
+        return 1
+    fi
 
-        echo
-        log_info "Searching logs using filename date (older than or equal to $DAYS days)..."
+    log_info "Source directory found."
 
-        #find_and_group_logs "$COMPONENT" "$CUTOFF_DATE"
-        find_and_group_logs \
-            "$COMPONENT" \
-            FILE_GROUPS \
-            "$CUTOFF_DATE"
+    #-------------------------------------------------------
+    # Enter Source Directory
+    #-------------------------------------------------------
 
-        if [[ ${#FILE_GROUPS[@]} -eq 0 ]]; then
-            log_info "No eligible logs found."
-            return
-        fi
+    if ! pushd "$SRC_DIR" > /dev/null; then
+        log_error "Failed to enter source directory: $SRC_DIR"
 
-        #-------------------------------------------------------
+        COMPONENT_STATUS["$COMPONENT"]="FAILED"
+
+        return 1
+    fi
+
+    # IMPORTANT:
+    # No direct return is allowed from this point
+    # until popd is executed.
+
+    #-------------------------------------------------------
+    # Ensure destination exists
+    #-------------------------------------------------------
+
+    if [[ ! -d "$DEST_DIR" ]]; then
+        log_info "Destination directory does not exist. Creating..."
+        mkdir -p "$DEST_DIR"
+    else
+        log_info "Destination directory exists."
+    fi
+
+    #-------------------------------------------------------
+    # Find and Group Log Files
+    #-------------------------------------------------------
+
+    echo
+    log_info "Searching logs using filename date (older than or equal to $DAYS days)..."
+
+    find_and_group_logs \
+        "$COMPONENT" \
+        FILE_GROUPS \
+        "$CUTOFF_DATE"
+
+    #-------------------------------------------------------
+    # Process eligible logs
+    #-------------------------------------------------------
+
+    if [[ ${#FILE_GROUPS[@]} -eq 0 ]]; then
+
+        log_info "No eligible logs found."
+
+    else
+
+        #---------------------------------------------------
         # Process each date
-        #-------------------------------------------------------
+        #---------------------------------------------------
 
         while IFS= read -r DATE
         do
@@ -675,35 +697,56 @@ archive_component() {
             then
                 echo
                 log_error "Archive processing failed for date: $DATE"
-                COMPONENT_PROCESS_FAILED=1
-                COMPONENT_STATUS="FAILED"
 
+                COMPONENT_PROCESS_FAILED=1
+                COMPONENT_PROCESS_STATUS="FAILED"
             fi
 
         done < <(printf '%s\n' "${!FILE_GROUPS[@]}" | sort)
 
-        echo
-        log_info "Finished component : $COMPONENT"
+    fi
 
-        printf '%s|%s|%s|%s|%s\n' \
-            "$COMPONENT" \
-            "$COMP_ARCHIVES_CREATED" \
-            "$COMP_ARCHIVES_RECOVERED" \
-            "$COMP_ARCHIVES_EXISTING" \
-            "$COMPONENT_STATUS" \
-            >> "$ARCHIVE_RESULT_FILE"
+    echo
+    log_info "Finished component : $COMPONENT"
 
+    #-------------------------------------------------------
+    # Restore previous working directory
+    #-------------------------------------------------------
 
-        if [[ "$COMPONENT_PROCESS_FAILED" -ne 0 ]]; then
+    if ! popd > /dev/null; then
+        log_error "Failed to restore previous working directory."
 
-            log_error "Component processing failed : $COMPONENT"
-            return 1
+        COMPONENT_PROCESS_FAILED=1
+        COMPONENT_PROCESS_STATUS="FAILED"
+    fi
 
-        fi        
+    #-------------------------------------------------------
+    # Store Component Summary
+    #-------------------------------------------------------
 
-    )
+    COMPONENT_CREATED["$COMPONENT"]="$COMP_ARCHIVES_CREATED"
+    COMPONENT_RECOVERED["$COMPONENT"]="$COMP_ARCHIVES_RECOVERED"
+    COMPONENT_EXISTING["$COMPONENT"]="$COMP_ARCHIVES_EXISTING"
+    COMPONENT_STATUS["$COMPONENT"]="$COMPONENT_PROCESS_STATUS"
 
+    #-------------------------------------------------------
+    # Update Global Archive Counters
+    #-------------------------------------------------------
 
+    ARCHIVES_CREATED=$((ARCHIVES_CREATED + COMP_ARCHIVES_CREATED))
+    ARCHIVES_RECOVERED=$((ARCHIVES_RECOVERED + COMP_ARCHIVES_RECOVERED))
+    ARCHIVES_EXISTING=$((ARCHIVES_EXISTING + COMP_ARCHIVES_EXISTING))
+
+    #-------------------------------------------------------
+    # Return Component Status
+    #-------------------------------------------------------
+
+    if [[ "$COMPONENT_PROCESS_FAILED" -ne 0 ]]; then
+        log_error "Component processing failed : $COMPONENT"
+        return 1
+    fi
+
+    return 0
 }
 
 ############################################################
