@@ -44,6 +44,7 @@ declare -A COMPONENT_CREATED=()
 declare -A COMPONENT_RECOVERED=()
 declare -A COMPONENT_EXISTING=()
 declare -A COMPONENT_STATUS=()
+declare -A COMPONENT_RESULT=()
 
 #-----------------------------------------------------------
 # Source Directories
@@ -272,7 +273,7 @@ verify_archive() {
         log_error "File(s) NOT found in archive (${#MISSING_FILES[@]} missing):"
         printf '    [MISSING] %s\n' "${MISSING_FILES[@]}"
         echo
-        
+
         return 1
     fi
 
@@ -646,6 +647,7 @@ archive_component() {
 
     local COMPONENT_PROCESS_FAILED=0
     local COMPONENT_PROCESS_STATUS=""
+    local COMPONENT_PROCESS_RESULT=""
 
     local -A FILE_GROUPS=()
 
@@ -717,11 +719,13 @@ archive_component() {
 
         # Valid NO-OP condition.
         COMPONENT_PROCESS_STATUS=""
+        COMPONENT_PROCESS_RESULT="No eligible logs"
 
     else
 
         # Eligible logs found.
         COMPONENT_PROCESS_STATUS="SUCCESS"
+        COMPONENT_PROCESS_RESULT="Archive Processed"
 
         #---------------------------------------------------
         # Process each date
@@ -737,6 +741,7 @@ archive_component() {
 
                 COMPONENT_PROCESS_FAILED=1
                 COMPONENT_PROCESS_STATUS="FAILED"
+                COMPONENT_PROCESS_RESULT="Archive failed"
             fi
 
         done < <(printf '%s\n' "${!FILE_GROUPS[@]}" | sort)
@@ -765,6 +770,7 @@ archive_component() {
     COMPONENT_RECOVERED["$COMPONENT"]="$COMP_ARCHIVES_RECOVERED"
     COMPONENT_EXISTING["$COMPONENT"]="$COMP_ARCHIVES_EXISTING"
     COMPONENT_STATUS["$COMPONENT"]="$COMPONENT_PROCESS_STATUS"
+    COMPONENT_RESULT["$COMPONENT"]="$COMPONENT_PROCESS_RESULT"
 
     #-------------------------------------------------------
     # Update Global Archive Counters
@@ -861,9 +867,9 @@ END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 #-------------------------------------------------------
 
 echo
-echo "======================================================================"
+echo "========================================================================================="
 echo "Archive Execution Summary"
-echo "======================================================================"
+echo "========================================================================================="
 echo "Start Time               : $START_TIME"
 echo "End Time                 : $END_TIME"
 echo
@@ -872,27 +878,28 @@ echo "Successful Components    : $SUCCESSFUL_COMPONENTS"
 echo "Failed Components        : $FAILED_COMPONENTS"
 echo
 echo "Each Component Summary"
-echo "----------------------------------------------------------------------"
 
-printf "%-22s %8s %11s %10s %10s\n" "Component" "Created" "Recovered" "Existing" "Status"
-
-echo "----------------------------------------------------------------------"
+echo "-----------------------------------------------------------------------------------------"
+printf "%-22s %8s %11s %10s %20s %10s\n" "Component" "Created" "Recovered" "Existing" "Remarks" "Status"
+echo "-----------------------------------------------------------------------------------------"
 
 for COMPONENT_ENTRY in "${COMPONENTS[@]}"
 do
 
     IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
 
-    printf "%-22s %8s %11s %10s %10s\n" \
+    printf "%-22s %8s %11s %10s %20s %10s\n" \
         "$COMPONENT" \
         "${COMPONENT_CREATED[$COMPONENT]:-0}" \
         "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
         "${COMPONENT_EXISTING[$COMPONENT]:-0}" \
+        "${COMPONENT_RESULT[$COMPONENT]:-}" \
         "${COMPONENT_STATUS[$COMPONENT]:-}"
+
 
 done
 
-echo "----------------------------------------------------------------------"
+echo "-----------------------------------------------------------------------------------------"
 echo
 echo "Total Archives Created   : $ARCHIVES_CREATED"
 echo "Total Archives Recovered : $ARCHIVES_RECOVERED"
@@ -908,7 +915,7 @@ else
     echo "Overall Status           : SUCCESS"
 fi
 
-echo "======================================================================"
+echo "========================================================================================="
 
 #-------------------------------------------------------
 # Show Exit Status
