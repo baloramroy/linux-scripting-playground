@@ -32,8 +32,8 @@ ARCHIVES_EXISTING=0
 
 START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 
-LOCK_FILE="/tmp/log_archive.lock"
-LOG_DIR="/home/scripts/logs/log_archive"
+LOCK_FILE="/tmp/master_archiver.lock"
+LOG_DIR="/home/scripts/master_archiver/logs"
 LOG_FILE="$LOG_DIR/log_archive_$(date +%Y-%m-%d_%H%M%S).log"
 
 #-----------------------------------------------------------
@@ -268,13 +268,14 @@ verify_archive() {
 
     # 5. Report missing files
     if [[ ${#MISSING_FILES[@]} -gt 0 ]]; then
-        echo
+        
         log_error "File(s) NOT found in archive (${#MISSING_FILES[@]} missing):"
         printf '    [MISSING] %s\n' "${MISSING_FILES[@]}"
+        echo
+        
         return 1
     fi
 
-    echo
     log_info "All ${#FILES_REF[@]} source files verified in archive."
     return 0
 }
@@ -644,7 +645,7 @@ archive_component() {
     local COMP_ARCHIVES_EXISTING=0
 
     local COMPONENT_PROCESS_FAILED=0
-    local COMPONENT_PROCESS_STATUS="SUCCESS"
+    local COMPONENT_PROCESS_STATUS=""
 
     local -A FILE_GROUPS=()
 
@@ -714,7 +715,13 @@ archive_component() {
 
         log_info "No eligible logs found."
 
+        # Valid NO-OP condition.
+        COMPONENT_PROCESS_STATUS=""
+
     else
+
+        # Eligible logs found.
+        COMPONENT_PROCESS_STATUS="SUCCESS"
 
         #---------------------------------------------------
         # Process each date
@@ -776,12 +783,21 @@ archive_component() {
         return 1
     fi
 
+    # No eligible logs = valid NO-OP.
+    if [[ -z "$COMPONENT_PROCESS_STATUS" ]]; then
+        return 2
+    fi
+
     return 0
 }
 
 ############################################################
-# Main Funtion -> archive_component() Funtion
+# Main Funtion () -> archive_component() Funtion
 ############################################################
+
+#-------------------------------------------------------
+# Main Logic Start From Here
+#-------------------------------------------------------
 
 echo
 echo "============================================================"
@@ -811,16 +827,29 @@ do
     TOTAL_COMPONENTS=$((TOTAL_COMPONENTS + 1))
 
     if archive_component "$COMPONENT" "$SRC_DIR" "$DEST_DIR"; then
-
-        SUCCESSFUL_COMPONENTS=$((SUCCESSFUL_COMPONENTS + 1))
-
+        RC=0
     else
-
-        FAILED_COMPONENTS=$((FAILED_COMPONENTS + 1))
-        FAILED_COMPONENTS_LIST+="$COMPONENT, "
-        ARCHIVE_FAILED=1
-
+        RC=$?
     fi
+
+    case "$RC" in
+
+        0)
+            SUCCESSFUL_COMPONENTS=$((SUCCESSFUL_COMPONENTS + 1))
+            ;;
+
+        2)
+            # No eligible logs.
+            # Do not count as success or failure.
+            ;;
+
+        *)
+            FAILED_COMPONENTS=$((FAILED_COMPONENTS + 1))
+            FAILED_COMPONENTS_LIST+="$COMPONENT, "
+            ARCHIVE_FAILED=1
+            ;;
+
+    esac
 
 done
 
