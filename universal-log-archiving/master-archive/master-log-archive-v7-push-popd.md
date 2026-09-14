@@ -40,10 +40,6 @@ LOG_FILE="$LOG_DIR/log_archive_$(date +%Y-%m-%d_%H%M%S).log"
 # Declaring associative arrays
 #-----------------------------------------------------------
 
-# Remove this line completely
-#declare -A FILE_GROUPS=()
-# Declaring outside the function so that both functions can access it.
-
 declare -A COMPONENT_CREATED=()
 declare -A COMPONENT_RECOVERED=()
 declare -A COMPONENT_EXISTING=()
@@ -58,11 +54,11 @@ declare -A COMPONENT_STATUS=()
 ############################################################
 
 # Format:
-#   "COMPONENT:SRC_DIR:DEST_DIR"
+#   "COMPONENT|SRC_DIR|DEST_DIR"
 
 COMPONENTS=(
-    "apigw-nagad-app7:/home/apigw/log/archive:/LOGS/app7/apigw"
-    "dmscore-nagad-app7:/home/dmscore/log/archive:/LOGS/app7/dmscore"
+    "apigw-nagad-app7|/home/apigw/log/archive|/LOGS/app7/apigw"
+    "dmscore-nagad-app7|/home/dmscore/log/archive|/LOGS/app7/dmscore"
 )
 
 
@@ -84,7 +80,20 @@ validate_configuration() {
 
     for entry in "${COMPONENTS[@]}"; do
 
-        IFS=':' read -r name src dest <<< "$entry"
+        IFS='|' read -r name src dest <<< "$entry"
+
+        #-------------------------------------------------------
+        # Validate component entry format
+        #-------------------------------------------------------
+
+        # Guard against unexpected delimiter in the entry.
+        # Reconstruct the entry from parsed fields and compare it
+        # with the original entry to detect extra fields.
+
+        if [[ "$entry" != "$name|$src|$dest" ]]; then
+            log_error "Component entry has unexpected field count (check for extra delimiter): '$entry'"
+            return 1
+        fi
 
         if [[ -z "$name" ]]; then
             log_error "Component entry has empty name: '$entry'"
@@ -197,10 +206,14 @@ find_and_group_logs() {
 
             if [[ "$FILE_DATE" < "$CUTOFF_DATE" || "$FILE_DATE" == "$CUTOFF_DATE" ]]; then
 
-                #FILE_GROUPS["$FILE_DATE"]+="$file"$'\n'
                 GROUPS_REF["$FILE_DATE"]+="$file"$'\n'
 
             fi
+        
+        else
+
+            log_warning "Filename doesn't match expected date pattern, skipping: $file"
+        
         fi
     done
 }
@@ -557,7 +570,6 @@ process_archive_by_date() {
     # Get files for this date
     #-------------------------------------------------------
 
-    #read -ra FILES <<< "${FILE_GROUPS[$DATE]}"
     mapfile -t FILES < <(
         printf '%s' "${FILE_GROUPS[$DATE]}" | sort -V
     )
@@ -794,7 +806,7 @@ fi
 
 for COMPONENT_ENTRY in "${COMPONENTS[@]}"
 do
-    IFS=':' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
 
     TOTAL_COMPONENTS=$((TOTAL_COMPONENTS + 1))
 
@@ -840,7 +852,7 @@ echo "----------------------------------------------------------------------"
 for COMPONENT_ENTRY in "${COMPONENTS[@]}"
 do
 
-    IFS=':' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
 
     printf "%-22s %8s %11s %10s %10s\n" \
         "$COMPONENT" \
