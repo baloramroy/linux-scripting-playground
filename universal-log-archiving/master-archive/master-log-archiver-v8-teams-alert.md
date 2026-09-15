@@ -1,0 +1,1283 @@
+```bash
+#!/bin/bash
+#
+# Multi Component Log Archive Script
+#
+# Features:
+#   - Archives logs based on filename date (NOT mtime)
+#   - Supports multiple components
+#   - Supports multiple instances (INST_1, INST_2, ...)
+#   - Creates one archive per day per component
+#   - Recovery handling
+#   - Single lock file
+#
+
+set -euo pipefail
+
+############################################################
+# Configuration
+############################################################
+
+DAYS=3
+
+ARCHIVE_FAILED=0
+TOTAL_COMPONENTS=0
+SUCCESSFUL_COMPONENTS=0
+FAILED_COMPONENTS=0
+FAILED_COMPONENTS_LIST=""
+
+ARCHIVES_CREATED=0
+ARCHIVES_RECOVERED=0
+ARCHIVES_EXISTING=0
+
+START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+
+LOCK_FILE="/tmp/master_archiver.lock"
+LOG_DIR="/home/scripts/master_archiver/logs"
+LOG_FILE="$LOG_DIR/log_archive_$(date +%Y-%m-%d_%H%M%S).log"
+
+#-----------------------------------------------------------
+# Teams Alert Configuration
+#-----------------------------------------------------------
+
+WEBHOOK_URL="https://default1-hVb4xMbs"
+
+USE_PROXY="NO"
+HTTPS_PROXY="http://10.210.10.173:4899"
+
+#-----------------------------------------------------------
+# Declaring associative arrays
+#-----------------------------------------------------------
+
+declare -A COMPONENT_CREATED=()
+declare -A COMPONENT_RECOVERED=()
+declare -A COMPONENT_EXISTING=()
+declare -A COMPONENT_STATUS=()
+declare -A COMPONENT_RESULT=()
+
+#-----------------------------------------------------------
+# Source Directories
+#-----------------------------------------------------------
+
+############################################################
+# Component Configuration
+############################################################
+
+# Format:
+#   "COMPONENT|SRC_DIR|DEST_DIR"
+
+COMPONENTS=(
+    "apigw-nagad-app7|/home/apigw/log/archive|/LOGS/app7/apigw"
+    "dmscore-nagad-app7|/home/dmscore/log/archive|/LOGS/app7/dmscore"
+)
+
+
+############################################################
+# Configuration Validation
+############################################################
+
+validate_configuration() {
+
+    local entry
+    local name src dest
+
+    log_info "Validating component configuration..."
+
+    if [[ ${#COMPONENTS[@]} -eq 0 ]]; then
+        log_error "No components configured."
+        return 1
+    fi
+
+    for entry in "${COMPONENTS[@]}"; do
+
+        IFS='|' read -r name src dest <<< "$entry"
+
+        #-------------------------------------------------------
+        # Validate component entry format
+        #-------------------------------------------------------
+
+        # Guard against unexpected delimiter in the entry.
+        # Reconstruct the entry from parsed fields and compare it
+        # with the original entry to detect extra fields.
+
+        if [[ "$entry" != "$name|$src|$dest" ]]; then
+            log_error "Component entry has unexpected field count (check for extra delimiter): '$entry'"
+            return 1
+        fi
+
+        if [[ -z "$name" ]]; then
+            log_error "Component entry has empty name: '$entry'"
+            return 1
+        fi
+
+        if [[ -z "$src" ]]; then
+            log_error "Source directory is empty for component: $name"
+            return 1
+        fi
+
+        if [[ -z "$dest" ]]; then
+            log_error "Destination directory is empty for component: $name"
+            return 1
+        fi
+
+    done
+
+    log_info "Component configuration validation successful."
+    return 0
+}
+
+
+############################################################
+# Lock
+############################################################
+
+exec 200>"$LOCK_FILE"
+
+flock -n 200 || {
+    echo "Another archive process is already running."
+    exit 1
+}
+
+
+############################################################
+# Logging
+############################################################
+
+mkdir -p "$LOG_DIR"
+
+exec >> "$LOG_FILE" 2>&1
+
+
+log_timestamp() {
+
+    date '+%Y-%m-%d %H:%M:%S'
+
+}
+
+
+log_info() {
+
+    echo "[$(log_timestamp)] [INFO] $*"
+
+}
+
+
+log_warning() {
+
+    echo "[$(log_timestamp)] [WARNING] $*"
+
+}
+
+
+log_error() {
+
+    echo "[$(log_timestamp)] [ERROR] $*"
+
+}
+
+
+############################################################
+# Teams Notification
+############################################################
+
+send_notification() {
+
+    local MESSAGE="$1"
+
+    local COLOR
+    local MESSAGE_JSON
+    local JSON
+
+    if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
+        COLOR="FF0000"
+    else
+        COLOR="00AA00"
+    fi
+
+    # Escape message for JSON
+    MESSAGE_JSON=$(printf '%s' "$MESSAGE" | \
+        python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+
+    JSON=$(cat <<EOF
+{
+  "@type":"MessageCard",
+  "@context":"http://schema.org/extensions",
+  "summary":"Log Archive Execution Summary",
+  "themeColor":"$COLOR",
+  "title":"Log Archive Execution Summary",
+  "text":$MESSAGE_JSON
+}
+EOF
+)
+
+    if [[ "$USE_PROXY" == "YES" ]]; then
+
+        curl -s \
+            -x "$HTTPS_PROXY" \
+            -H "Content-Type: application/json" \
+            -d "$JSON" \
+            "$WEBHOOK_URL" >/dev/null
+
+    else
+
+        curl -s \
+            -H "Content-Type: application/json" \
+            -d "$JSON" \
+            "$WEBHOOK_URL" >/dev/null
+
+    fi
+
+}
+
+############################################################
+# Cutoff Date
+############################################################
+
+CUTOFF_DATE=$(date -d "$DAYS days ago" +%F)
+
+
+############################################################
+# Find and Group Logs by Date Wise
+############################################################
+
+find_and_group_logs() {
+
+    local COMPONENT="$1"
+    local GROUPS_ARRAY="$2"
+    local CUTOFF_DATE="$3"
+
+    local -n GROUPS_REF="$GROUPS_ARRAY"
+
+    local FILE_DATE
+
+    GROUPS_REF=()
+
+    shopt -s nullglob
+    
+
+    #-------------------------------------------------------
+    # Group logs by filename date
+    #-------------------------------------------------------
+
+    for file in "${COMPONENT}"-INST_*-*.log.gz
+    do
+        [[ -f "$file" ]] || continue
+
+        if [[ $file =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
+
+            FILE_DATE="${BASH_REMATCH[1]}"
+
+            if [[ "$FILE_DATE" < "$CUTOFF_DATE" || "$FILE_DATE" == "$CUTOFF_DATE" ]]; then
+
+                GROUPS_REF["$FILE_DATE"]+="$file"$'\n'
+
+            fi
+        
+        else
+
+            log_warning "Filename doesn't match expected date pattern, skipping: $file"
+        
+        fi
+    done
+}
+
+
+############################################################
+# Verify Archive
+############################################################
+
+verify_archive() {
+    local ARCHIVE_NAME="$1"
+    local FILES_ARRAY="$2"
+    local -n FILES_REF="$FILES_ARRAY"
+
+    local FILE
+    local ARCHIVE_FILE
+    local ARCHIVE_OUTPUT
+    local NORMALIZED_FILE
+
+    local -a ARCHIVE_FILES=()
+    local -a MISSING_FILES=()
+    local -A ARCHIVE_SET=()
+
+    echo
+    log_info "Verifying archive contents..."
+
+    # 1. Verify archive readability and capture file listing
+    if ! ARCHIVE_OUTPUT=$(tar -tzf "$ARCHIVE_NAME" 2>&1); then
+        log_error "Archive is corrupted or cannot be read: $ARCHIVE_OUTPUT"
+        return 1
+    fi
+
+    # 2. Parse archive listing into an array
+    mapfile -t ARCHIVE_FILES <<< "$ARCHIVE_OUTPUT"
+
+    # 3. Build archive lookup set
+    for ARCHIVE_FILE in "${ARCHIVE_FILES[@]}"
+    do
+        NORMALIZED_FILE="${ARCHIVE_FILE#./}"
+        ARCHIVE_SET["$NORMALIZED_FILE"]=1
+    done
+
+    # 4. Check all source files using direct lookup
+    for FILE in "${FILES_REF[@]}"
+    do
+        NORMALIZED_FILE="${FILE#./}"
+
+        if [[ -z "${ARCHIVE_SET[$NORMALIZED_FILE]+x}" ]]; then
+            MISSING_FILES+=("$FILE")
+        fi
+    done
+
+    # 5. Report missing files
+    if [[ ${#MISSING_FILES[@]} -gt 0 ]]; then
+        
+        log_error "File(s) NOT found in archive (${#MISSING_FILES[@]} missing):"
+        printf '    [MISSING] %s\n' "${MISSING_FILES[@]}"
+        echo
+
+        return 1
+    fi
+
+    log_info "All ${#FILES_REF[@]} source files verified in archive."
+    return 0
+}
+
+
+############################################################
+# Handle Existing Destination Archive and remove source
+############################################################
+
+handle_existing_destination_archive() {
+
+    local ARCHIVE_NAME="$1"
+    local DEST_DIR="$2"
+    local DATE="$3"
+    local FILES_ARRAY="$4"
+
+    # local -n —> Creates a reference to an EXISTING array
+    # References the array PASSED BY NAME
+    local -n FILES_REF="$FILES_ARRAY"
+
+    #-------------------------------------------------------
+    # Verify Existing Archive
+    #-------------------------------------------------------
+
+    echo
+    log_info "Archive already exists in the destination on this ${DATE}."
+
+    if ! verify_archive "$DEST_DIR/$ARCHIVE_NAME" "$FILES_ARRAY"; then
+
+        log_error "Existing archive does not match source files."
+        log_error "Source files will NOT be deleted."
+
+        return 1
+
+    fi
+
+    log_info "Existing archive matches all source files."
+
+    COMP_ARCHIVES_EXISTING=$((COMP_ARCHIVES_EXISTING + 1))
+
+    #-------------------------------------------------------
+    # Delete Source Files
+    #-------------------------------------------------------
+
+    echo
+    log_warning "Deleting source log files..."
+
+    if ! rm -f "${FILES_REF[@]}"; then
+
+        log_error "Failed to delete one or more source log files."
+        log_error "Existing archive is verified, but source files were NOT completely deleted."
+
+        return 1
+
+    fi
+
+    log_info "Source files deleted successfully."
+    log_info "Archive processing completed."
+
+    return 0
+}
+
+
+############################################################
+# Recover Existing Archive and Move to Destination
+############################################################
+
+recover_archive() {
+
+    local ARCHIVE_NAME="$1"
+    local DEST_DIR="$2"
+    local DATE="$3"
+    local FILES_ARRAY="$4"
+
+    # local -n —> Creates a reference to an EXISTING array
+    # References the array PASSED BY NAME
+    local -n FILES_REF="$FILES_ARRAY"
+
+    #-------------------------------------------------------
+    # Recovery Verification
+    #-------------------------------------------------------
+
+    echo
+    log_info "Existing archive found in the source directory on this ${DATE} date."
+    log_info "Recovery mode detected."
+
+    if ! verify_archive "$ARCHIVE_NAME" "$FILES_ARRAY"; then
+
+        log_error "Recovery verification failed."
+        log_error "Source files will NOT be deleted."
+
+        local CORRUPT_ARCHIVE
+        CORRUPT_ARCHIVE="${ARCHIVE_NAME}.corrupt.$(date '+%Y%m%d_%H%M%S')"
+
+        if ! mv -f "$ARCHIVE_NAME" "$CORRUPT_ARCHIVE"; then
+            log_error "Failed to quarantine invalid recovery archive: $ARCHIVE_NAME"
+        else
+            log_warning "Invalid recovery archive quarantined as: $CORRUPT_ARCHIVE"
+        fi
+
+        return 1
+
+    fi
+
+    #-------------------------------------------------------
+    # Move Archive
+    #-------------------------------------------------------
+
+    echo
+    log_info "Moving recovered archive..."
+
+    if ! mv -f "$ARCHIVE_NAME" "$DEST_DIR/"; then
+
+        log_error "Failed to move recovered archive: $ARCHIVE_NAME"
+        log_error "Source files will NOT be deleted."
+
+        return 1
+
+    fi
+
+    if [[ ! -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
+
+        log_error "Recovered archive is not present in destination after move: $DEST_DIR/$ARCHIVE_NAME"
+        log_error "Source files will NOT be deleted."
+
+        return 1
+
+    fi
+
+    log_info "Recovered archive moved successfully."
+
+    COMP_ARCHIVES_RECOVERED=$((COMP_ARCHIVES_RECOVERED + 1))
+
+    #-------------------------------------------------------
+    # Set Archive Permissions
+    #-------------------------------------------------------
+
+    if ! chmod 777 "$DEST_DIR/$ARCHIVE_NAME"; then
+        log_warning "Failed to set permissions on archive: $DEST_DIR/$ARCHIVE_NAME"
+        log_warning "Continuing anyway — archive is present and verified."
+    fi
+
+    #-------------------------------------------------------
+    # Delete Source Files
+    #-------------------------------------------------------
+
+    echo
+    log_warning "Deleting source log files..."
+
+    if ! rm -f "${FILES_REF[@]}"; then
+
+        log_error "Failed to delete one or more source log files."
+        log_error "Recovered archive is stored successfully, but source files were NOT completely deleted."
+
+        return 1
+
+    fi
+
+    log_info "Source files deleted successfully."
+    log_info "Recovery completed."
+
+    return 0
+}
+
+
+############################################################
+# Create and Store Archive for Each Date
+############################################################
+
+create_archive() {
+
+    local ARCHIVE_NAME="$1"
+    local DEST_DIR="$2"
+    local FILES_ARRAY="$3"
+    
+    # local -n —> Creates a reference to an EXISTING array
+    # References the array PASSED BY NAME
+    local -n FILES_REF="$FILES_ARRAY"
+
+    #-------------------------------------------------------
+    # Create Archive
+    #-------------------------------------------------------
+
+    echo
+    log_info "Creating archive..."
+
+    if ! tar -czf "$ARCHIVE_NAME" "${FILES_REF[@]}"; then
+
+        log_error "Failed to create archive: $ARCHIVE_NAME"
+        log_info "Source files will NOT be deleted."
+
+        return 1
+
+    fi
+
+    log_info "Archive created."
+
+    #-------------------------------------------------------
+    # Verify Archive
+    #-------------------------------------------------------
+
+    if ! verify_archive "$ARCHIVE_NAME" "$FILES_ARRAY"; then
+
+        log_error "Archive verification failed."
+        log_info "Source files will NOT be deleted."
+
+        if ! rm -f "$ARCHIVE_NAME"; then
+            log_error "Failed to remove invalid archive: $ARCHIVE_NAME"
+        fi
+
+        return 1
+
+    fi
+
+    #-------------------------------------------------------
+    # Move Archive
+    #-------------------------------------------------------
+
+    echo
+    log_info "Moving archive..."
+
+    if ! mv -f "$ARCHIVE_NAME" "$DEST_DIR/"; then
+        log_error "Failed to move archive: $ARCHIVE_NAME"
+        log_info "Source files will NOT be deleted."
+        return 1
+    fi
+
+    if [[ ! -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
+        log_error "Archive is not present in destination after move: $DEST_DIR/$ARCHIVE_NAME"
+        log_info "Source files will NOT be deleted."
+        return 1
+    fi
+
+    log_info "Archive moved successfully."
+
+    COMP_ARCHIVES_CREATED=$((COMP_ARCHIVES_CREATED + 1))
+
+    #-------------------------------------------------------
+    # Set Archive Permissions
+    #-------------------------------------------------------
+
+    if ! chmod 777 "$DEST_DIR/$ARCHIVE_NAME"; then
+        log_warning "Failed to set permissions on archive: $DEST_DIR/$ARCHIVE_NAME"
+        log_warning "Continuing anyway — archive is present and verified."
+    fi
+
+    #-------------------------------------------------------
+    # Delete Source Files
+    #-------------------------------------------------------
+
+    echo
+    log_warning "Deleting source log files..."
+
+    if ! rm -f "${FILES_REF[@]}"; then
+        log_error "Failed to delete one or more source log files."
+        log_error "Archive was created successfully, but source files were NOT completely deleted."
+        return 1
+    fi
+
+    log_info "Source files deleted successfully."
+    log_info "Archive processing completed."
+
+    return 0
+}
+
+
+############################################################
+# Process Each Date and Generate Archive for Each Date
+############################################################
+
+process_archive_by_date() {
+
+    local COMPONENT="$1"
+    local DATE="$2"
+    local DEST_DIR="$3"
+
+    local ARCHIVE_NAME
+    
+    # local -a —> Declares a new local array
+    # Creates a NEW, EMPTY local array
+    local -a FILES=()
+
+    ARCHIVE_NAME="${COMPONENT}-${DATE}.tar.gz"
+
+    echo
+    echo "============================================================"
+    echo "Processing Date : $DATE"
+    echo "Archive         : $ARCHIVE_NAME"
+    echo "============================================================"
+
+
+    #-------------------------------------------------------
+    # Get files for this date
+    #-------------------------------------------------------
+
+    mapfile -t FILES < <(
+        printf '%s' "${FILE_GROUPS[$DATE]}" | sort -V
+    )
+
+    if [[ ${#FILES[@]} -eq 0 ]]; then
+
+        log_info "No files found on this ${DATE}."
+
+        return
+
+    fi
+
+    #-------------------------------------------------------
+    # Show files which going to archive
+    #-------------------------------------------------------
+
+    echo
+    log_info "Files being archived (${#FILES[@]}):"
+    echo
+
+    printf '    %s\n' "${FILES[@]}"
+
+
+    #-------------------------------------------------------
+    # If archive already exists in destination
+    #-------------------------------------------------------
+
+    if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
+
+        handle_existing_destination_archive "$ARCHIVE_NAME" "$DEST_DIR" "$DATE" FILES
+
+        return $?
+
+    fi
+
+
+    #-------------------------------------------------------
+    # Recovery if Archive exist in the source
+    #-------------------------------------------------------
+
+    if [[ -f "$ARCHIVE_NAME" ]]; then
+
+        recover_archive "$ARCHIVE_NAME" "$DEST_DIR" "$DATE" FILES
+
+        return $?
+
+    fi
+
+    #-------------------------------------------------------
+    # Create Archive if not in source or destination
+    #-------------------------------------------------------
+
+    if ! create_archive "$ARCHIVE_NAME" "$DEST_DIR" FILES; then
+        return 1
+    fi
+
+}
+
+
+#########################################################################
+# Archive Function -> find_and_group_logs () and process_archive_by_date ()
+#########################################################################
+
+archive_component() {
+
+    local COMPONENT="$1"
+    local SRC_DIR="$2"
+    local DEST_DIR="$3"
+
+    local COMP_ARCHIVES_CREATED=0
+    local COMP_ARCHIVES_RECOVERED=0
+    local COMP_ARCHIVES_EXISTING=0
+
+    local COMPONENT_PROCESS_FAILED=0
+    local COMPONENT_PROCESS_STATUS=""
+    local COMPONENT_PROCESS_RESULT=""
+
+    local -A FILE_GROUPS=()
+
+    echo
+    echo "############################################################"
+    echo "Component      : $COMPONENT"
+    echo "Source         : $SRC_DIR"
+    echo "Destination    : $DEST_DIR"
+    echo "############################################################"
+
+    #-------------------------------------------------------
+    # Validate Source
+    #-------------------------------------------------------
+
+    if [[ ! -d "$SRC_DIR" ]]; then
+        log_error "Source directory not found: $SRC_DIR"
+        log_info "Skipping component."
+
+        COMPONENT_STATUS["$COMPONENT"]="FAILED"
+
+        return 1
+    fi
+
+    log_info "Source directory found."
+
+    #-------------------------------------------------------
+    # Enter Source Directory
+    #-------------------------------------------------------
+
+    if ! pushd "$SRC_DIR" > /dev/null; then
+        log_error "Failed to enter source directory: $SRC_DIR"
+
+        COMPONENT_STATUS["$COMPONENT"]="FAILED"
+
+        return 1
+    fi
+
+    # IMPORTANT:
+    # No direct return is allowed from this point
+    # until popd is executed.
+
+    #-------------------------------------------------------
+    # Ensure destination exists
+    #-------------------------------------------------------
+
+    if [[ ! -d "$DEST_DIR" ]]; then
+        log_info "Destination directory does not exist. Creating..."
+        mkdir -p "$DEST_DIR"
+    else
+        log_info "Destination directory exists."
+    fi
+
+    #-------------------------------------------------------
+    # Find and Group Log Files
+    #-------------------------------------------------------
+
+    echo
+    log_info "Searching logs using filename date (older than or equal to $DAYS days)..."
+
+    find_and_group_logs "$COMPONENT" FILE_GROUPS "$CUTOFF_DATE"
+
+    #-------------------------------------------------------
+    # Process eligible logs
+    #-------------------------------------------------------
+
+    if [[ ${#FILE_GROUPS[@]} -eq 0 ]]; then
+
+        log_info "No eligible logs found."
+
+        # Valid NO-OP condition.
+        COMPONENT_PROCESS_STATUS=""
+        COMPONENT_PROCESS_RESULT="No eligible logs"
+
+    else
+
+        # Eligible logs found.
+        COMPONENT_PROCESS_STATUS="SUCCESS"
+        COMPONENT_PROCESS_RESULT="Archive Processed"
+
+        #---------------------------------------------------
+        # Process each date
+        #---------------------------------------------------
+
+        while IFS= read -r DATE
+        do
+
+            if ! process_archive_by_date "$COMPONENT" "$DATE" "$DEST_DIR"; then
+
+                echo
+                log_error "Archive processing failed for date: $DATE"
+
+                COMPONENT_PROCESS_FAILED=1
+                COMPONENT_PROCESS_STATUS="FAILED"
+                COMPONENT_PROCESS_RESULT="Archive failed"
+            fi
+
+        done < <(printf '%s\n' "${!FILE_GROUPS[@]}" | sort)
+
+    fi
+
+    echo
+    log_info "Finished component : $COMPONENT"
+
+    #-------------------------------------------------------
+    # Restore previous working directory
+    #-------------------------------------------------------
+
+    if ! popd > /dev/null; then
+        log_error "Failed to restore previous working directory."
+
+        COMPONENT_PROCESS_FAILED=1
+        COMPONENT_PROCESS_STATUS="FAILED"
+    fi
+
+    #-------------------------------------------------------
+    # Store Component Summary
+    #-------------------------------------------------------
+
+    COMPONENT_CREATED["$COMPONENT"]="$COMP_ARCHIVES_CREATED"
+    COMPONENT_RECOVERED["$COMPONENT"]="$COMP_ARCHIVES_RECOVERED"
+    COMPONENT_EXISTING["$COMPONENT"]="$COMP_ARCHIVES_EXISTING"
+    COMPONENT_STATUS["$COMPONENT"]="$COMPONENT_PROCESS_STATUS"
+    COMPONENT_RESULT["$COMPONENT"]="$COMPONENT_PROCESS_RESULT"
+
+    #-------------------------------------------------------
+    # Update Global Archive Counters
+    #-------------------------------------------------------
+
+    ARCHIVES_CREATED=$((ARCHIVES_CREATED + COMP_ARCHIVES_CREATED))
+    ARCHIVES_RECOVERED=$((ARCHIVES_RECOVERED + COMP_ARCHIVES_RECOVERED))
+    ARCHIVES_EXISTING=$((ARCHIVES_EXISTING + COMP_ARCHIVES_EXISTING))
+
+    #-------------------------------------------------------
+    # Return Component Status
+    #-------------------------------------------------------
+
+    if [[ "$COMPONENT_PROCESS_FAILED" -ne 0 ]]; then
+        log_error "Component processing failed : $COMPONENT"
+        return 1
+    fi
+
+    # No eligible logs = valid NO-OP.
+    if [[ -z "$COMPONENT_PROCESS_STATUS" ]]; then
+        return 2
+    fi
+
+    return 0
+}
+
+############################################################
+# Main Funtion () -> archive_component() Funtion
+############################################################
+
+#-------------------------------------------------------
+# Main Logic Start From Here
+#-------------------------------------------------------
+
+echo
+echo "============================================================"
+echo "Log Archive Started"
+echo "Retention (Filename Date): $DAYS days"
+echo "Cutoff Date              : $CUTOFF_DATE"
+echo "============================================================"
+
+#-------------------------------------------------------
+# Validate Configuration
+#-------------------------------------------------------
+
+if ! validate_configuration; then
+
+    log_error "Configuration validation failed."
+    log_error "Archive process aborted."
+
+    exit 1
+
+fi
+
+
+for COMPONENT_ENTRY in "${COMPONENTS[@]}"
+do
+    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+
+    TOTAL_COMPONENTS=$((TOTAL_COMPONENTS + 1))
+
+    if archive_component "$COMPONENT" "$SRC_DIR" "$DEST_DIR"; then
+        RC=0
+    else
+        RC=$?
+    fi
+
+    case "$RC" in
+
+        0)
+            SUCCESSFUL_COMPONENTS=$((SUCCESSFUL_COMPONENTS + 1))
+            ;;
+
+        2)
+            # No eligible logs.
+            # Do not count as success or failure.
+            ;;
+
+        *)
+            FAILED_COMPONENTS=$((FAILED_COMPONENTS + 1))
+            FAILED_COMPONENTS_LIST+="$COMPONENT, "
+            ARCHIVE_FAILED=1
+            ;;
+
+    esac
+
+done
+
+
+END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+
+#-------------------------------------------------------
+# Execution Summary Start from Here
+#-------------------------------------------------------
+
+if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
+    OVERALL_STATUS="FAILED"
+else
+    OVERALL_STATUS="SUCCESS"
+fi
+
+
+############################################################
+# Terminal Execution Summary
+############################################################
+
+echo
+echo "==============================================================================================="
+echo "Archive Execution Summary"
+echo "==============================================================================================="
+echo "Start Time               : $START_TIME"
+echo "End Time                 : $END_TIME"
+echo
+echo "Total Components         : $TOTAL_COMPONENTS"
+echo "Successful Components    : $SUCCESSFUL_COMPONENTS"
+echo "Failed Components        : $FAILED_COMPONENTS"
+echo
+echo "Each Component Summary"
+
+echo "-----------------------------------------------------------------------------------------------"
+printf "%-30s %8s %11s %10s %20s %10s\n" "Component" "Created" "Recovered" "Existing" "Remarks" "Status"
+echo "-----------------------------------------------------------------------------------------------"
+
+for COMPONENT_ENTRY in "${COMPONENTS[@]}"
+do
+
+    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+
+    printf "%-30s %8s %11s %10s %20s %10s\n" \
+        "$COMPONENT" \
+        "${COMPONENT_CREATED[$COMPONENT]:-0}" \
+        "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
+        "${COMPONENT_EXISTING[$COMPONENT]:-0}" \
+        "${COMPONENT_RESULT[$COMPONENT]:-}" \
+        "${COMPONENT_STATUS[$COMPONENT]:-}"
+
+done
+
+echo "-----------------------------------------------------------------------------------------------"
+echo
+echo "Total Archives Created   : $ARCHIVES_CREATED"
+echo "Total Archives Recovered : $ARCHIVES_RECOVERED"
+echo "Total Archives Exist     : $ARCHIVES_EXISTING"
+
+if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
+    echo "Failed Component List    : ${FAILED_COMPONENTS_LIST%, }"
+fi
+
+echo "Overall Status           : $OVERALL_STATUS"
+
+echo "==============================================================================================="
+
+
+############################################################
+# Teams Execution Summary (Redesigned)
+############################################################
+
+if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
+    TEAMS_STATUS="<font color='red'><b>❌ FAILED</b></font>"
+    HEADER_COLOR="#D93025"
+else
+    TEAMS_STATUS="<font color='green'><b>✅ SUCCESS</b></font>"
+    HEADER_COLOR="#188038"
+fi
+
+# ---- Header block ----
+TEAMS_SUMMARY=$(cat <<EOF
+<font color='$HEADER_COLOR'><b>Archive Execution Summary</b></font><br>
+<i>$START_TIME &nbsp;→&nbsp; $END_TIME</i>
+<br><br>
+
+<table border="0" cellpadding="4" cellspacing="0">
+<tr>
+<td><b>Total</b></td>
+<td><b>Successful</b></td>
+<td><b>Failed</b></td>
+</tr>
+<tr>
+<td>$TOTAL_COMPONENTS</td>
+<td><font color='green'>$SUCCESSFUL_COMPONENTS</font></td>
+<td>$([[ "$FAILED_COMPONENTS" -gt 0 ]] && echo "<font color='red'>$FAILED_COMPONENTS</font>" || echo "$FAILED_COMPONENTS")</td>
+</tr>
+</table>
+<br>
+
+<b>Component Summary</b>
+<br><br>
+
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse; width:100%;">
+<tr style="background-color:#f2f2f2;">
+<td><b>Component</b></td>
+<td><b>Created</b></td>
+<td><b>Recovered</b></td>
+<td><b>Existing</b></td>
+<td><b>Remarks</b></td>
+<td><b>Status</b></td>
+</tr>
+EOF
+)
+
+for COMPONENT_ENTRY in "${COMPONENTS[@]}"
+do
+    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+
+    STATUS="${COMPONENT_STATUS[$COMPONENT]:-}"
+    if [[ "$STATUS" == "SUCCESS" ]]; then
+        STATUS_HTML="<font color='green'><b>SUCCESS</b></font>"
+    elif [[ "$STATUS" == "FAILED" ]]; then
+        STATUS_HTML="<font color='red'><b>FAILED</b></font>"
+    else
+        STATUS_HTML="<font color='gray'><b>N/A</b></font>"
+    fi
+
+    TEAMS_SUMMARY+=$(cat <<EOF
+<tr>
+<td>$COMPONENT</td>
+<td>${COMPONENT_CREATED[$COMPONENT]:-0}</td>
+<td>${COMPONENT_RECOVERED[$COMPONENT]:-0}</td>
+<td>${COMPONENT_EXISTING[$COMPONENT]:-0}</td>
+<td>${COMPONENT_RESULT[$COMPONENT]:-}</td>
+<td>$STATUS_HTML</td>
+</tr>
+EOF
+)
+done
+
+TEAMS_SUMMARY+="</table><br>"
+
+# ---- Footer totals ----
+TEAMS_SUMMARY+=$(cat <<EOF
+<table border="0" cellpadding="4" cellspacing="0">
+<tr><td><b>Total Archives Created</b></td><td>$ARCHIVES_CREATED</td></tr>
+<tr><td><b>Total Archives Recovered</b></td><td>$ARCHIVES_RECOVERED</td></tr>
+<tr><td><b>Total Archives Exist</b></td><td>$ARCHIVES_EXISTING</td></tr>
+</table>
+<br>
+EOF
+)
+
+if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
+    TEAMS_SUMMARY+=$(cat <<EOF
+<font color='red'><b>Failed Component List:</b> ${FAILED_COMPONENTS_LIST%, }</font><br><br>
+EOF
+)
+fi
+
+TEAMS_SUMMARY+="<b>Overall Status:</b> $TEAMS_STATUS"
+
+
+############################################################
+# Send Summary to Teams
+############################################################
+
+send_notification "$TEAMS_SUMMARY"
+
+#-------------------------------------------------------
+# Show Exit Status
+#-------------------------------------------------------
+
+
+if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
+    exit 1
+fi
+
+exit 0
+
+```
+
+---
+
+## Legacy text teams alert version:
+
+```bash
+############################################################
+# Teams Execution Summary
+############################################################
+
+if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
+
+    TEAMS_STATUS="<font color='red'><b>FAILED</b></font>"
+
+else
+
+    TEAMS_STATUS="<font color='green'><b>SUCCESS</b></font>"
+
+fi
+
+
+TEAMS_SUMMARY=$(cat <<EOF
+<b>Start Time:</b> $START_TIME<br>
+<b>End Time:</b> $END_TIME<br>
+<br>
+
+<b>Total Components:</b> $TOTAL_COMPONENTS<br>
+<b>Successful Components:</b> $SUCCESSFUL_COMPONENTS<br>
+<b>Failed Components:</b> $FAILED_COMPONENTS<br>
+
+<br>
+<b>Component Summary</b>
+<br><br>
+EOF
+)
+
+
+for COMPONENT_ENTRY in "${COMPONENTS[@]}"
+do
+
+    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+
+    TEAMS_SUMMARY+=$(cat <<EOF
+<b>$COMPONENT</b><br>
+Created: ${COMPONENT_CREATED[$COMPONENT]:-0} |
+Recovered: ${COMPONENT_RECOVERED[$COMPONENT]:-0} |
+Existing: ${COMPONENT_EXISTING[$COMPONENT]:-0}<br>
+Remarks: ${COMPONENT_RESULT[$COMPONENT]:-}<br>
+Status: ${COMPONENT_STATUS[$COMPONENT]:-}<br>
+<br>
+EOF
+)
+
+done
+
+
+TEAMS_SUMMARY+=$(cat <<EOF
+<b>Total Archives Created:</b> $ARCHIVES_CREATED<br>
+<b>Total Archives Recovered:</b> $ARCHIVES_RECOVERED<br>
+<b>Total Archives Exist:</b> $ARCHIVES_EXISTING<br>
+EOF
+)
+
+
+if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
+
+    TEAMS_SUMMARY+=$(cat <<EOF
+<br>
+<b>Failed Component List:</b> ${FAILED_COMPONENTS_LIST%, }<br>
+EOF
+)
+
+fi
+
+
+TEAMS_SUMMARY+=$(cat <<EOF
+<br>
+<b>Overall Status:</b> $TEAMS_STATUS
+EOF
+)
+```
+
+
+## legacy table teams alert:
+
+```bash
+############################################################
+# Teams Execution Summary (Redesigned)
+############################################################
+
+if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
+    TEAMS_STATUS="<font color='red'><b>❌ FAILED</b></font>"
+    HEADER_COLOR="#D93025"
+else
+    TEAMS_STATUS="<font color='green'><b>✅ SUCCESS</b></font>"
+    HEADER_COLOR="#188038"
+fi
+
+# ---- Header block ----
+TEAMS_SUMMARY=$(cat <<EOF
+<font color='$HEADER_COLOR'><b>Archive Execution Summary</b></font><br>
+<i>$START_TIME &nbsp;→&nbsp; $END_TIME</i>
+<br><br>
+
+<table border="0" cellpadding="4" cellspacing="0">
+<tr>
+<td><b>Total</b></td>
+<td><b>Successful</b></td>
+<td><b>Failed</b></td>
+</tr>
+<tr>
+<td>$TOTAL_COMPONENTS</td>
+<td><font color='green'>$SUCCESSFUL_COMPONENTS</font></td>
+<td>$([[ "$FAILED_COMPONENTS" -gt 0 ]] && echo "<font color='red'>$FAILED_COMPONENTS</font>" || echo "$FAILED_COMPONENTS")</td>
+</tr>
+</table>
+<br>
+
+<b>Component Summary</b>
+<br><br>
+
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse; width:100%;">
+<tr style="background-color:#f2f2f2;">
+<td><b>Component</b></td>
+<td><b>Created</b></td>
+<td><b>Recovered</b></td>
+<td><b>Existing</b></td>
+<td><b>Remarks</b></td>
+<td><b>Status</b></td>
+</tr>
+EOF
+)
+
+for COMPONENT_ENTRY in "${COMPONENTS[@]}"
+do
+    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+
+    STATUS="${COMPONENT_STATUS[$COMPONENT]:-}"
+    if [[ "$STATUS" == "SUCCESS" ]]; then
+        STATUS_HTML="<font color='green'><b>SUCCESS</b></font>"
+    elif [[ "$STATUS" == "FAILED" ]]; then
+        STATUS_HTML="<font color='red'><b>FAILED</b></font>"
+    else
+        STATUS_HTML="<font color='gray'><b>N/A</b></font>"
+    fi
+
+    TEAMS_SUMMARY+=$(cat <<EOF
+<tr>
+<td>$COMPONENT</td>
+<td>${COMPONENT_CREATED[$COMPONENT]:-0}</td>
+<td>${COMPONENT_RECOVERED[$COMPONENT]:-0}</td>
+<td>${COMPONENT_EXISTING[$COMPONENT]:-0}</td>
+<td>${COMPONENT_RESULT[$COMPONENT]:-}</td>
+<td>$STATUS_HTML</td>
+</tr>
+EOF
+)
+done
+
+TEAMS_SUMMARY+="</table><br>"
+
+# ---- Footer totals ----
+TEAMS_SUMMARY+=$(cat <<EOF
+<table border="0" cellpadding="4" cellspacing="0">
+<tr><td><b>Total Archives Created</b></td><td>$ARCHIVES_CREATED</td></tr>
+<tr><td><b>Total Archives Recovered</b></td><td>$ARCHIVES_RECOVERED</td></tr>
+<tr><td><b>Total Archives Exist</b></td><td>$ARCHIVES_EXISTING</td></tr>
+</table>
+<br>
+EOF
+)
+
+if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
+    TEAMS_SUMMARY+=$(cat <<EOF
+<font color='red'><b>Failed Component List:</b> ${FAILED_COMPONENTS_LIST%, }</font><br><br>
+EOF
+)
+fi
+
+TEAMS_SUMMARY+="<b>Overall Status:</b> $TEAMS_STATUS"
+```
