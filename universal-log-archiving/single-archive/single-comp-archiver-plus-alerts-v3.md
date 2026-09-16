@@ -1,4 +1,3 @@
-```bash
 #!/bin/bash
 set -euo pipefail
 
@@ -68,6 +67,10 @@ send_notification()
     if [[ "$USE_PROXY" == "YES" ]]; then
 
         curl -sS -f \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 2 \
+            --retry-delay 2 \
             -x "$HTTPS_PROXY" \
             -H "Content-Type: application/json" \
             -d "$JSON" \
@@ -76,6 +79,10 @@ send_notification()
     else
 
         curl -sS -f \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 2 \
+            --retry-delay 2 \
             -H "Content-Type: application/json" \
             -d "$JSON" \
             "$WEBHOOK_URL" >/dev/null
@@ -96,6 +103,7 @@ send_teams_alert()
     local STATUS_COLOR
     local STATUS_TEXT
     local JSON
+    local RESULT_PARTS=()
 
     END_TIME=$(date '+%F %T')
 
@@ -104,42 +112,25 @@ send_teams_alert()
 
     if [[ "$COMPONENT_STATUS" == "SUCCESS" ]]; then
 
-        if [[ "$ARCHIVES_CREATED" -gt 0 && "$ARCHIVES_RECOVERED" -gt 0 && "$ARCHIVES_EXISTING" -gt 0 ]]; then
+        if [[ "$ARCHIVES_CREATED" -gt 0 ]]; then
+            RESULT_PARTS+=("$ARCHIVES_CREATED archive(s) created")
+        fi
 
-            COMPONENT_RESULT="$ARCHIVES_CREATED archive(s) created, $ARCHIVES_RECOVERED recovered, and $ARCHIVES_EXISTING already existed and were skipped."
+        if [[ "$ARCHIVES_RECOVERED" -gt 0 ]]; then
+            RESULT_PARTS+=("$ARCHIVES_RECOVERED archive(s) recovered")
+        fi
 
-        elif [[ "$ARCHIVES_CREATED" -gt 0 && "$ARCHIVES_RECOVERED" -gt 0 ]]; then
+        if [[ "$ARCHIVES_EXISTING" -gt 0 ]]; then
+            RESULT_PARTS+=("$ARCHIVES_EXISTING already existed and were skipped")
+        fi
 
-            COMPONENT_RESULT="$ARCHIVES_CREATED archive(s) created and $ARCHIVES_RECOVERED recovered successfully."
-
-        elif [[ "$ARCHIVES_CREATED" -gt 0 && "$ARCHIVES_EXISTING" -gt 0 ]]; then
-
-            COMPONENT_RESULT="$ARCHIVES_CREATED archive(s) created successfully. $ARCHIVES_EXISTING already existed and were skipped."
-
-        elif [[ "$ARCHIVES_RECOVERED" -gt 0 && "$ARCHIVES_EXISTING" -gt 0 ]]; then
-
-            COMPONENT_RESULT="$ARCHIVES_RECOVERED archive(s) recovered successfully. $ARCHIVES_EXISTING already existed and were skipped."
-
-        elif [[ "$ARCHIVES_CREATED" -gt 0 ]]; then
-
-            COMPONENT_RESULT="$ARCHIVES_CREATED archive(s) created successfully."
-
-        elif [[ "$ARCHIVES_RECOVERED" -gt 0 ]]; then
-
-            COMPONENT_RESULT="$ARCHIVES_RECOVERED archive(s) recovered successfully."
-
-        elif [[ "$ARCHIVES_EXISTING" -gt 0 ]]; then
-
-            COMPONENT_RESULT="All eligible archives already existed in destination. Processing skipped."
-
+        if [[ "${#RESULT_PARTS[@]}" -gt 0 ]]; then
+            COMPONENT_RESULT="$(IFS=', '; echo "${RESULT_PARTS[*]}")."
         else
-
             COMPONENT_RESULT="No eligible logs found older than or equal to $DAYS days."
-
         fi
 
     fi
-
 
 
     if [[ "$COMPONENT_STATUS" == "SUCCESS" ]]; then
@@ -253,18 +244,24 @@ send_teams_alert()
                                         "width": "stretch",
                                         "items": [
                                             {
-                                                "type": "TextBlock",
-                                                "text": "$LOG_FILES_PROCESSED",
-                                                "size": "ExtraLarge",
-                                                "weight": "Bolder",
-                                                "horizontalAlignment": "Center"
-                                            },
-                                            {
-                                                "type": "TextBlock",
-                                                "text": "Log Files Processed",
-                                                "size": "Small",
-                                                "wrap": true,
-                                                "horizontalAlignment": "Center"
+                                                "type": "Container",
+                                                "style": "emphasis",
+                                                "items": [
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "$LOG_FILES_PROCESSED",
+                                                        "size": "ExtraLarge",
+                                                        "weight": "Bolder",
+                                                        "horizontalAlignment": "Center"
+                                                    },
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "Log Files Processed",
+                                                        "size": "Small",
+                                                        "wrap": true,
+                                                        "horizontalAlignment": "Center"
+                                                    }
+                                                ]
                                             }
                                         ]
                                     },
@@ -273,18 +270,24 @@ send_teams_alert()
                                         "width": "stretch",
                                         "items": [
                                             {
-                                                "type": "TextBlock",
-                                                "text": "$ARCHIVES_CREATED",
-                                                "size": "ExtraLarge",
-                                                "weight": "Bolder",
-                                                "horizontalAlignment": "Center"
-                                            },
-                                            {
-                                                "type": "TextBlock",
-                                                "text": "Archives Created",
-                                                "size": "Small",
-                                                "wrap": true,
-                                                "horizontalAlignment": "Center"
+                                                "type": "Container",
+                                                "style": "emphasis",
+                                                "items": [
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "$ARCHIVES_CREATED",
+                                                        "size": "ExtraLarge",
+                                                        "weight": "Bolder",
+                                                        "horizontalAlignment": "Center"
+                                                    },
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "Archives Created",
+                                                        "size": "Small",
+                                                        "wrap": true,
+                                                        "horizontalAlignment": "Center"
+                                                    }
+                                                ]
                                             }
                                         ]
                                     },
@@ -293,18 +296,24 @@ send_teams_alert()
                                         "width": "stretch",
                                         "items": [
                                             {
-                                                "type": "TextBlock",
-                                                "text": "$ARCHIVES_RECOVERED",
-                                                "size": "ExtraLarge",
-                                                "weight": "Bolder",
-                                                "horizontalAlignment": "Center"
-                                            },
-                                            {
-                                                "type": "TextBlock",
-                                                "text": "Archives Recovered",
-                                                "size": "Small",
-                                                "wrap": true,
-                                                "horizontalAlignment": "Center"
+                                                "type": "Container",
+                                                "style": "emphasis",
+                                                "items": [
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "$ARCHIVES_RECOVERED",
+                                                        "size": "ExtraLarge",
+                                                        "weight": "Bolder",
+                                                        "horizontalAlignment": "Center"
+                                                    },
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "Archives Recovered",
+                                                        "size": "Small",
+                                                        "wrap": true,
+                                                        "horizontalAlignment": "Center"
+                                                    }
+                                                ]
                                             }
                                         ]
                                     },
@@ -313,18 +322,24 @@ send_teams_alert()
                                         "width": "stretch",
                                         "items": [
                                             {
-                                                "type": "TextBlock",
-                                                "text": "$ARCHIVES_EXISTING",
-                                                "size": "ExtraLarge",
-                                                "weight": "Bolder",
-                                                "horizontalAlignment": "Center"
-                                            },
-                                            {
-                                                "type": "TextBlock",
-                                                "text": "Already Existing",
-                                                "size": "Small",
-                                                "wrap": true,
-                                                "horizontalAlignment": "Center"
+                                                "type": "Container",
+                                                "style": "emphasis",
+                                                "items": [
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "$ARCHIVES_EXISTING",
+                                                        "size": "ExtraLarge",
+                                                        "weight": "Bolder",
+                                                        "horizontalAlignment": "Center"
+                                                    },
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "Already Existing",
+                                                        "size": "Small",
+                                                        "wrap": true,
+                                                        "horizontalAlignment": "Center"
+                                                    }
+                                                ]
                                             }
                                         ]
                                     }
@@ -419,6 +434,7 @@ on_exit()
     fi
 
     send_teams_alert || true
+    return "$EXIT_CODE"
 }
 
 trap on_exit EXIT
@@ -529,7 +545,6 @@ do
     if [[ -f "$DEST_DIR/$ARCHIVE_NAME" ]]; then
 
         ARCHIVES_EXISTING=$((ARCHIVES_EXISTING + 1))
-        #COMPONENT_RESULT="Archive already exists in destination. Processing skipped."
 
         log "Archive already exists in destination."
         log "Skipping..."
@@ -607,8 +622,6 @@ do
             LOG_FILES_PROCESSED=$((LOG_FILES_PROCESSED + ${#FILES[@]}))
             ARCHIVES_RECOVERED=$((ARCHIVES_RECOVERED + 1))
 
-            #COMPONENT_RESULT="Archive recovered and source logs deleted"
-
             log "Recovery completed."
 
         else
@@ -633,9 +646,21 @@ do
 
     log "Creating archive..."
 
-    tar -czf "$ARCHIVE_NAME" "${FILES[@]}"
+    if tar -czf "$ARCHIVE_NAME" "${FILES[@]}"; then
 
-    log "Archive created."
+        log "Archive created."
+
+    else
+
+        log "ERROR: Failed to create archive: $ARCHIVE_NAME"
+
+        COMPONENT_RESULT="Failed to create archive $ARCHIVE_NAME. Source log files were NOT deleted."
+
+        rm -f "$ARCHIVE_NAME"
+
+        exit 1
+
+    fi
 
     #----------------------------------------------
     # Verify archive
@@ -679,8 +704,6 @@ do
         LOG_FILES_PROCESSED=$((LOG_FILES_PROCESSED + ${#FILES[@]}))
         ARCHIVES_CREATED=$((ARCHIVES_CREATED + 1))
 
-        #COMPONENT_RESULT="Archive created and source logs deleted"
-
         log "Completed for $DATE"
 
     else
@@ -696,5 +719,3 @@ echo
 log "========================================"
 log "All eligible logs processed successfully."
 log "========================================"
-
-```
