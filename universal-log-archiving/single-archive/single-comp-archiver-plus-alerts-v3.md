@@ -1,3 +1,4 @@
+```bash
 #!/bin/bash
 set -euo pipefail
 
@@ -246,20 +247,23 @@ send_teams_alert()
                                             {
                                                 "type": "Container",
                                                 "style": "emphasis",
+                                                "spacing": "None",
                                                 "items": [
                                                     {
                                                         "type": "TextBlock",
                                                         "text": "$LOG_FILES_PROCESSED",
                                                         "size": "ExtraLarge",
                                                         "weight": "Bolder",
-                                                        "horizontalAlignment": "Center"
+                                                        "horizontalAlignment": "Center",
+                                                        "spacing": "None"
                                                     },
                                                     {
                                                         "type": "TextBlock",
                                                         "text": "Log Files Processed",
                                                         "size": "Small",
                                                         "wrap": true,
-                                                        "horizontalAlignment": "Center"
+                                                        "horizontalAlignment": "Center",
+                                                        "spacing": "Small"
                                                     }
                                                 ]
                                             }
@@ -272,20 +276,23 @@ send_teams_alert()
                                             {
                                                 "type": "Container",
                                                 "style": "emphasis",
+                                                "spacing": "None",
                                                 "items": [
                                                     {
                                                         "type": "TextBlock",
                                                         "text": "$ARCHIVES_CREATED",
                                                         "size": "ExtraLarge",
                                                         "weight": "Bolder",
-                                                        "horizontalAlignment": "Center"
+                                                        "horizontalAlignment": "Center",
+                                                        "spacing": "None"
                                                     },
                                                     {
                                                         "type": "TextBlock",
                                                         "text": "Archives Created",
                                                         "size": "Small",
                                                         "wrap": true,
-                                                        "horizontalAlignment": "Center"
+                                                        "horizontalAlignment": "Center",
+                                                        "spacing": "Small"
                                                     }
                                                 ]
                                             }
@@ -298,20 +305,23 @@ send_teams_alert()
                                             {
                                                 "type": "Container",
                                                 "style": "emphasis",
+                                                "spacing": "None",
                                                 "items": [
                                                     {
                                                         "type": "TextBlock",
                                                         "text": "$ARCHIVES_RECOVERED",
                                                         "size": "ExtraLarge",
                                                         "weight": "Bolder",
-                                                        "horizontalAlignment": "Center"
+                                                        "horizontalAlignment": "Center",
+                                                        "spacing": "None"
                                                     },
                                                     {
                                                         "type": "TextBlock",
                                                         "text": "Archives Recovered",
                                                         "size": "Small",
                                                         "wrap": true,
-                                                        "horizontalAlignment": "Center"
+                                                        "horizontalAlignment": "Center",
+                                                        "spacing": "Small"
                                                     }
                                                 ]
                                             }
@@ -324,20 +334,23 @@ send_teams_alert()
                                             {
                                                 "type": "Container",
                                                 "style": "emphasis",
+                                                "spacing": "None",
                                                 "items": [
                                                     {
                                                         "type": "TextBlock",
                                                         "text": "$ARCHIVES_EXISTING",
                                                         "size": "ExtraLarge",
                                                         "weight": "Bolder",
-                                                        "horizontalAlignment": "Center"
+                                                        "horizontalAlignment": "Center",
+                                                        "spacing": "None"
                                                     },
                                                     {
                                                         "type": "TextBlock",
                                                         "text": "Already Existing",
                                                         "size": "Small",
                                                         "wrap": true,
-                                                        "horizontalAlignment": "Center"
+                                                        "horizontalAlignment": "Center",
+                                                        "spacing": "Small"
                                                     }
                                                 ]
                                             }
@@ -719,3 +732,5 @@ echo
 log "========================================"
 log "All eligible logs processed successfully."
 log "========================================"
+
+```
