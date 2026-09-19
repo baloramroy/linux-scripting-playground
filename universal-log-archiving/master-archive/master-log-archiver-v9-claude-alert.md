@@ -948,9 +948,10 @@ print_execution_summary
 # Teams Execution Summary — Adaptive Card
 ############################################################
 
-build_teams_card()
+prepare_teams_summary()
 {
-    if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
+
+    if [[ "$OVERALL_STATUS" == "FAILED" ]]; then
         OVERALL_COLOR="attention"
         OVERALL_ICON="❌"
         OVERALL_TEXT="FAILED"
@@ -960,6 +961,11 @@ build_teams_card()
         OVERALL_TEXT="SUCCESS"
     fi
 
+    if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
+        FAILED_COLOR="attention"
+    else
+        FAILED_COLOR="default"
+    fi
 
     # ------------------------------------------------------
     # Build component table rows dynamically
@@ -1020,6 +1026,7 @@ EOF
     if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
 
         FAILED_LIST_BLOCK=$(cat <<EOF
+,
 {
   "type": "TextBlock",
   "text": "**Failed Component List:** ${FAILED_COMPONENTS_LIST%, }",
@@ -1032,12 +1039,16 @@ EOF
 
     fi
 
+}
 
-    # ------------------------------------------------------
-    # Full Adaptive Card payload
-    # ------------------------------------------------------
 
-    ADAPTIVE_CARD=$(cat <<EOF
+############################################################
+# Generate Teams Adaptive Card
+############################################################
+
+generate_teams_card()
+{
+    cat <<EOF
 {
   "type": "message",
   "attachments": [
@@ -1048,6 +1059,7 @@ EOF
         "type": "AdaptiveCard",
         "version": "1.5",
         "body": [
+
           {
             "type": "Container",
             "style": "emphasis",
@@ -1059,47 +1071,104 @@ EOF
                   {
                     "type": "Column",
                     "width": "auto",
-                    "items": [{ "type": "TextBlock", "text": "${OVERALL_ICON}", "size": "ExtraLarge" }]
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "${OVERALL_ICON}",
+                        "size": "ExtraLarge"
+                      }
+                    ]
                   },
                   {
                     "type": "Column",
                     "width": "stretch",
                     "items": [
-                      { "type": "TextBlock", "text": "Archive Execution Summary", "size": "Large", "weight": "Bolder" },
-                      { "type": "TextBlock", "text": "${START_TIME}  →  ${END_TIME}", "isSubtle": true, "spacing": "None", "wrap": true }
+                      {
+                        "type": "TextBlock",
+                        "text": "Archive Execution Summary",
+                        "size": "Large",
+                        "weight": "Bolder"
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "${START_TIME}  →  ${END_TIME}",
+                        "isSubtle": true,
+                        "spacing": "None",
+                        "wrap": true
+                      }
                     ]
                   }
                 ]
               }
             ]
           },
+
           {
             "type": "ColumnSet",
             "spacing": "Medium",
             "columns": [
               {
-                "type": "Column", "width": "stretch",
+                "type": "Column",
+                "width": "stretch",
                 "items": [
-                  { "type": "TextBlock", "text": "Total", "isSubtle": true, "horizontalAlignment": "Center" },
-                  { "type": "TextBlock", "text": "${TOTAL_COMPONENTS}", "size": "Large", "weight": "Bolder", "horizontalAlignment": "Center" }
+                  {
+                    "type": "TextBlock",
+                    "text": "Total",
+                    "isSubtle": true,
+                    "horizontalAlignment": "Center"
+                  },
+                  {
+                    "type": "TextBlock",
+                    "text": "${TOTAL_COMPONENTS}",
+                    "size": "Large",
+                    "weight": "Bolder",
+                    "horizontalAlignment": "Center"
+                  }
                 ]
               },
               {
-                "type": "Column", "width": "stretch",
+                "type": "Column",
+                "width": "stretch",
                 "items": [
-                  { "type": "TextBlock", "text": "Successful", "isSubtle": true, "horizontalAlignment": "Center" },
-                  { "type": "TextBlock", "text": "${SUCCESSFUL_COMPONENTS}", "size": "Large", "weight": "Bolder", "color": "good", "horizontalAlignment": "Center" }
+                  {
+                    "type": "TextBlock",
+                    "text": "Successful",
+                    "isSubtle": true,
+                    "horizontalAlignment": "Center"
+                  },
+                  {
+                    "type": "TextBlock",
+                    "text": "${SUCCESSFUL_COMPONENTS}",
+                    "size": "Large",
+                    "weight": "Bolder",
+                    "color": "good",
+                    "horizontalAlignment": "Center"
+                  }
                 ]
               },
               {
-                "type": "Column", "width": "stretch",
+                "type": "Column",
+                "width": "stretch",
                 "items": [
-                  { "type": "TextBlock", "text": "Failed", "isSubtle": true, "horizontalAlignment": "Center" },
-                  { "type": "TextBlock", "text": "${FAILED_COMPONENTS}", "size": "Large", "weight": "Bolder", "color": "$([[ "$FAILED_COMPONENTS" -gt 0 ]] && echo attention || echo default)", "horizontalAlignment": "Center" }
+                  {
+                    "type": "TextBlock",
+                    "text": "Failed",
+                    "isSubtle": true,
+                    "horizontalAlignment": "Center"
+                  },
+                  {
+                    "type": "TextBlock",
+                    "text": "${FAILED_COMPONENTS}",
+                    "size": "Large",
+                    "weight": "Bolder",
+                    "color": "${FAILED_COLOR}",
+                    "horizontalAlignment": "Center"
+                  }
                 ]
               }
             ]
           },
+
           {
             "type": "TextBlock",
             "text": "Component Summary",
@@ -1107,6 +1176,7 @@ EOF
             "size": "Medium",
             "spacing": "Large"
           },
+
           {
             "type": "Table",
             "firstRowAsHeaders": true,
@@ -1123,28 +1193,104 @@ EOF
               {
                 "type": "TableRow",
                 "cells": [
-                  { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "Component", "weight": "Bolder" }] },
-                  { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "Created", "weight": "Bolder", "horizontalAlignment": "Center" }] },
-                  { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "Recovered", "weight": "Bolder", "horizontalAlignment": "Center" }] },
-                  { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "Existing", "weight": "Bolder", "horizontalAlignment": "Center" }] },
-                  { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "Remarks", "weight": "Bolder" }] },
-                  { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "Status", "weight": "Bolder", "horizontalAlignment": "Center" }] }
+                  {
+                    "type": "TableCell",
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "Component",
+                        "weight": "Bolder",
+                        "wrap": true
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableCell",
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "Created",
+                        "weight": "Bolder",
+                        "horizontalAlignment": "Center",
+                        "wrap": true
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableCell",
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "Recovered",
+                        "weight": "Bolder",
+                        "horizontalAlignment": "Center",
+                        "wrap": true
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableCell",
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "Existing",
+                        "weight": "Bolder",
+                        "horizontalAlignment": "Center",
+                        "wrap": true
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableCell",
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "Remarks",
+                        "weight": "Bolder",
+                        "wrap": true
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableCell",
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "Status",
+                        "weight": "Bolder",
+                        "horizontalAlignment": "Center",
+                        "wrap": true
+                      }
+                    ]
+                  }
                 ]
               }
               ${COMPONENT_ROWS:+,$COMPONENT_ROWS}
             ]
           },
+
           {
             "type": "FactSet",
             "spacing": "Medium",
             "facts": [
-              { "title": "Total Archives Created", "value": "${ARCHIVES_CREATED}" },
-              { "title": "Total Archives Recovered", "value": "${ARCHIVES_RECOVERED}" },
-              { "title": "Total Archives Exist", "value": "${ARCHIVES_EXISTING}" }
+              {
+                "title": "Total Archives Created",
+                "value": "${ARCHIVES_CREATED}"
+              },
+              {
+                "title": "Total Archives Recovered",
+                "value": "${ARCHIVES_RECOVERED}"
+              },
+              {
+                "title": "Total Archives Exist",
+                "value": "${ARCHIVES_EXISTING}"
+              }
             ]
           }
+
           ${FAILED_LIST_BLOCK}
           ,
+
           {
             "type": "Container",
             "style": "${OVERALL_COLOR}",
@@ -1156,17 +1302,18 @@ EOF
                 "text": "Overall Status: ${OVERALL_TEXT}",
                 "weight": "Bolder",
                 "size": "Medium",
-                "horizontalAlignment": "Center"
+                "horizontalAlignment": "Center",
+                "wrap": true
               }
             ]
           }
+
         ]
       }
     }
   ]
 }
 EOF
-)
 }
 
 
@@ -1208,8 +1355,9 @@ send_notification()
 ############################################################
 # Build and Send Teams Summary
 ############################################################
+prepare_teams_summary
 
-build_teams_card
+ADAPTIVE_CARD=$(generate_teams_card)
 
 if ! send_notification "$ADAPTIVE_CARD"; then
     TEAMS_NOTIFICATION_FAILED=1
