@@ -29,6 +29,7 @@ FAILED_COMPONENTS_LIST=""
 ARCHIVES_CREATED=0
 ARCHIVES_RECOVERED=0
 ARCHIVES_EXISTING=0
+TEAMS_NOTIFICATION_FAILED=0
 
 START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 
@@ -175,33 +176,6 @@ log_error() {
 
 }
 
-
-############################################################
-# Teams Notification
-############################################################
-
-send_notification() {
-
-    local JSON="$1"    # <-- now expects a full Adaptive Card JSON payload, not a text string
-
-    if [[ "$USE_PROXY" == "YES" ]]; then
-
-        curl -s \
-            -x "$HTTPS_PROXY" \
-            -H "Content-Type: application/json" \
-            -d "$JSON" \
-            "$WEBHOOK_URL" >/dev/null
-
-    else
-
-        curl -s \
-            -H "Content-Type: application/json" \
-            -d "$JSON" \
-            "$WEBHOOK_URL" >/dev/null
-
-    fi
-
-}
 
 ############################################################
 # Cutoff Date
@@ -833,12 +807,70 @@ archive_component() {
     return 0
 }
 
+
 ############################################################
-# Main Funtion () -> archive_component() Funtion
+# Print Execution Summary
+############################################################
+print_execution_summary()
+{
+    echo
+    echo "====================================================================================="
+    echo "Master Log Archive Execution Summary"
+    echo "====================================================================================="
+
+    printf "%-30s %10s\n" "Metric" "Count"
+    echo "-------------------------------------------------------------------------------------"
+
+    printf "%-30s %10s\n" "Total Components"      "$TOTAL_COMPONENTS"
+    printf "%-30s %10s\n" "Successful Components" "$SUCCESSFUL_COMPONENTS"
+    printf "%-30s %10s\n" "Failed Components"     "$FAILED_COMPONENTS"
+    printf "%-30s %10s\n" "Archives Created"      "$ARCHIVES_CREATED"
+    printf "%-30s %10s\n" "Archives Recovered"    "$ARCHIVES_RECOVERED"
+    printf "%-30s %10s\n" "Archives Existing"     "$ARCHIVES_EXISTING"
+
+    echo "-------------------------------------------------------------------------------------"
+    echo
+
+    echo "Each Component Summary"
+    echo "-------------------------------------------------------------------------------------"
+
+    printf "%-30s %8s %11s %10s   %-17s %10s\n" \
+        "Component" \
+        "Created" \
+        "Recovered" \
+        "Existing" \
+        "Result" \
+        "Status"
+
+    echo "-------------------------------------------------------------------------------------"
+
+    for COMPONENT_ENTRY in "${COMPONENTS[@]}"
+    do
+        IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+
+        printf "%-30s %8s %11s %10s   %-17s %10s\n" \
+            "$COMPONENT" \
+            "${COMPONENT_CREATED[$COMPONENT]:-0}" \
+            "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
+            "${COMPONENT_EXISTING[$COMPONENT]:-0}" \
+            "${COMPONENT_RESULT[$COMPONENT]:-N/A}" \
+            "${COMPONENT_STATUS[$COMPONENT]:-N/A}"
+    done
+
+
+
+    echo "-------------------------------------------------------------------------------------"
+    echo
+    printf "%-30s %10s\n" "Overall Status" "$OVERALL_STATUS"
+}
+
+
+############################################################
+# Main Logic Start From Here -> archive_component() Funtion
 ############################################################
 
 #-------------------------------------------------------
-# Main Logic Start From Here
+# 
 #-------------------------------------------------------
 
 echo
@@ -898,9 +930,10 @@ done
 
 END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 
-#-------------------------------------------------------
-# Execution Summary Start from Here
-#-------------------------------------------------------
+
+############################################################
+# Terminal Execution Summary (Redesigned)
+############################################################
 
 if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
     OVERALL_STATUS="FAILED"
@@ -908,100 +941,53 @@ else
     OVERALL_STATUS="SUCCESS"
 fi
 
-
-############################################################
-# Terminal Execution Summary
-############################################################
-
-echo
-echo "==============================================================================================="
-echo "Archive Execution Summary"
-echo "==============================================================================================="
-echo "Start Time               : $START_TIME"
-echo "End Time                 : $END_TIME"
-echo
-echo "Total Components         : $TOTAL_COMPONENTS"
-echo "Successful Components    : $SUCCESSFUL_COMPONENTS"
-echo "Failed Components        : $FAILED_COMPONENTS"
-echo
-echo "Each Component Summary"
-
-echo "-----------------------------------------------------------------------------------------------"
-printf "%-30s %8s %11s %10s %20s %10s\n" "Component" "Created" "Recovered" "Existing" "Remarks" "Status"
-echo "-----------------------------------------------------------------------------------------------"
-
-for COMPONENT_ENTRY in "${COMPONENTS[@]}"
-do
-
-    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
-
-    printf "%-30s %8s %11s %10s %20s %10s\n" \
-        "$COMPONENT" \
-        "${COMPONENT_CREATED[$COMPONENT]:-0}" \
-        "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
-        "${COMPONENT_EXISTING[$COMPONENT]:-0}" \
-        "${COMPONENT_RESULT[$COMPONENT]:-}" \
-        "${COMPONENT_STATUS[$COMPONENT]:-}"
-
-done
-
-echo "-----------------------------------------------------------------------------------------------"
-echo
-echo "Total Archives Created   : $ARCHIVES_CREATED"
-echo "Total Archives Recovered : $ARCHIVES_RECOVERED"
-echo "Total Archives Exist     : $ARCHIVES_EXISTING"
-
-if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
-    echo "Failed Component List    : ${FAILED_COMPONENTS_LIST%, }"
-fi
-
-echo "Overall Status           : $OVERALL_STATUS"
-
-echo "==============================================================================================="
+print_execution_summary
 
 
 ############################################################
-# Teams Execution Summary (Redesigned)
+# Teams Execution Summary — Adaptive Card
 ############################################################
 
-############################################################
-# Teams Execution Summary — Adaptive Card version
-############################################################
-# Requires: Teams Incoming Webhook that accepts Adaptive Cards
-#           (send via the "Workflows" app trigger, not the legacy
-#           Office 365 Connector — legacy connectors ignore Adaptive Card
-#           payloads sent as plain JSON without the O365 wrapper).
-############################################################
-
-if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
-    OVERALL_COLOR="attention"
-    OVERALL_ICON="❌"
-    OVERALL_TEXT="FAILED"
-else
-    OVERALL_COLOR="good"
-    OVERALL_ICON="✅"
-    OVERALL_TEXT="SUCCESS"
-fi
-
-# ---- Build the component table rows dynamically ----
-COMPONENT_ROWS=""
-for COMPONENT_ENTRY in "${COMPONENTS[@]}"
-do
-    IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
-
-    STATUS="${COMPONENT_STATUS[$COMPONENT]:-}"
-    if [[ "$STATUS" == "SUCCESS" ]]; then
-        STATUS_COLOR="good"
-        STATUS_LABEL="SUCCESS"
-    elif [[ "$STATUS" == "FAILED" ]]; then
-        STATUS_COLOR="attention"
-        STATUS_LABEL="FAILED"
+build_teams_card()
+{
+    if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
+        OVERALL_COLOR="attention"
+        OVERALL_ICON="❌"
+        OVERALL_TEXT="FAILED"
     else
-        STATUS_COLOR="default"
-        STATUS_LABEL="N/A"
+        OVERALL_COLOR="good"
+        OVERALL_ICON="✅"
+        OVERALL_TEXT="SUCCESS"
     fi
 
-    ROW=$(cat <<EOF
+
+    # ------------------------------------------------------
+    # Build component table rows dynamically
+    # ------------------------------------------------------
+
+    COMPONENT_ROWS=""
+
+    for COMPONENT_ENTRY in "${COMPONENTS[@]}"
+    do
+        IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+
+        STATUS="${COMPONENT_STATUS[$COMPONENT]:-}"
+
+        if [[ "$STATUS" == "SUCCESS" ]]; then
+            STATUS_COLOR="good"
+            STATUS_LABEL="SUCCESS"
+
+        elif [[ "$STATUS" == "FAILED" ]]; then
+            STATUS_COLOR="attention"
+            STATUS_LABEL="FAILED"
+
+        else
+            STATUS_COLOR="default"
+            STATUS_LABEL="N/A"
+        fi
+
+
+        ROW=$(cat <<EOF
 {
   "type": "TableRow",
   "cells": [
@@ -1015,17 +1001,25 @@ do
 }
 EOF
 )
-    if [[ -n "$COMPONENT_ROWS" ]]; then
-        COMPONENT_ROWS+=","
-    fi
-    COMPONENT_ROWS+="$ROW"
-done
 
-# ---- Optional failed-component fact ----
-FAILED_LIST_BLOCK=""
-if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
-    FAILED_LIST_BLOCK=$(cat <<EOF
-,
+        if [[ -n "$COMPONENT_ROWS" ]]; then
+            COMPONENT_ROWS+=","
+        fi
+
+        COMPONENT_ROWS+="$ROW"
+
+    done
+
+
+    # ------------------------------------------------------
+    # Optional failed-component fact
+    # ------------------------------------------------------
+
+    FAILED_LIST_BLOCK=""
+
+    if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
+
+        FAILED_LIST_BLOCK=$(cat <<EOF
 {
   "type": "TextBlock",
   "text": "**Failed Component List:** ${FAILED_COMPONENTS_LIST%, }",
@@ -1035,10 +1029,15 @@ if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
 }
 EOF
 )
-fi
 
-# ---- Full Adaptive Card payload ----
-ADAPTIVE_CARD=$(cat <<EOF
+    fi
+
+
+    # ------------------------------------------------------
+    # Full Adaptive Card payload
+    # ------------------------------------------------------
+
+    ADAPTIVE_CARD=$(cat <<EOF
 {
   "type": "message",
   "attachments": [
@@ -1168,25 +1167,60 @@ ADAPTIVE_CARD=$(cat <<EOF
 }
 EOF
 )
-
-############################################################
-# Send Summary to Teams
-############################################################
-#curl -sS -X POST -H "Content-Type: application/json" -d "$ADAPTIVE_CARD" "$TEAMS_WEBHOOK_URL"
+}
 
 
 ############################################################
 # Send Summary to Teams
 ############################################################
 
-#send_notification "$TEAMS_SUMMARY"
+send_notification()
+{
+    local JSON="$1"
 
-send_notification "$ADAPTIVE_CARD"
+    if [[ "$USE_PROXY" == "YES" ]]; then
+
+        curl -sS -f \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 2 \
+            --retry-delay 2 \
+            -x "$HTTPS_PROXY" \
+            -H "Content-Type: application/json" \
+            -d "$JSON" \
+            "$WEBHOOK_URL" >/dev/null
+
+    else
+
+        curl -sS -f \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 2 \
+            --retry-delay 2 \
+            -H "Content-Type: application/json" \
+            -d "$JSON" \
+            "$WEBHOOK_URL" >/dev/null
+
+    fi
+}
+
+
+############################################################
+# Build and Send Teams Summary
+############################################################
+
+build_teams_card
+
+if ! send_notification "$ADAPTIVE_CARD"; then
+    TEAMS_NOTIFICATION_FAILED=1
+    log_error "Teams notification failed, but archive execution result is preserved."
+fi
+
+
 
 #-------------------------------------------------------
 # Show Exit Status
 #-------------------------------------------------------
-
 
 if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
     exit 1
