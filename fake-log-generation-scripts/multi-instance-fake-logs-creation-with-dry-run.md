@@ -1,3 +1,4 @@
+```bash
 #!/bin/bash
 set -euo pipefail
 
@@ -91,9 +92,10 @@ generate_logs() {
 
         for ((hour=0; hour<24; hour++))
         do
+            hh=$(printf "%02d" "$hour")
             for ((inst=1; inst<=instances; inst++))
             do
-                file="${component}-${hostname}-INST_${inst}-${DATE}-${hour}-0.log.gz"
+                file="${component}-${hostname}-INST_${inst}-${DATE}-${hh}-0.log.gz"
 
                 if [[ "$dry_run" == "true" ]]; then
                     printf "[DRY RUN] Would create: %s\n" "$file"
@@ -135,3 +137,5 @@ fi
 # Author: Baloram Roy
 # Department: DevOps
 #------------------------------------------------------------------------------
+
+```
