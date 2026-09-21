@@ -945,11 +945,15 @@ print_execution_summary
 
 
 ############################################################
-# Teams Execution Summary — Adaptive Card
+# Prepare Teams Execution Summary
 ############################################################
 
 prepare_teams_summary()
 {
+
+    #-------------------------------------------------------
+    # Overall Status
+    #-------------------------------------------------------
 
     if [[ "$OVERALL_STATUS" == "FAILED" ]]; then
         OVERALL_COLOR="attention"
@@ -961,15 +965,21 @@ prepare_teams_summary()
         OVERALL_TEXT="SUCCESS"
     fi
 
+    #-------------------------------------------------------
+    # Failed Tile Color and Style
+    #-------------------------------------------------------
+
     if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
         FAILED_COLOR="attention"
+        FAILED_STYLE="attention"
     else
         FAILED_COLOR="default"
+        FAILED_STYLE="emphasis"
     fi
 
-    # ------------------------------------------------------
-    # Build component table rows dynamically
-    # ------------------------------------------------------
+    #-------------------------------------------------------
+    # Build Component Rows
+    #-------------------------------------------------------
 
     COMPONENT_ROWS=""
 
@@ -979,30 +989,40 @@ prepare_teams_summary()
 
         STATUS="${COMPONENT_STATUS[$COMPONENT]:-}"
 
-        if [[ "$STATUS" == "SUCCESS" ]]; then
-            STATUS_COLOR="good"
-            STATUS_LABEL="SUCCESS"
-
-        elif [[ "$STATUS" == "FAILED" ]]; then
-            STATUS_COLOR="attention"
-            STATUS_LABEL="FAILED"
-
-        else
-            STATUS_COLOR="default"
-            STATUS_LABEL="N/A"
-        fi
-
+        case "$STATUS" in
+            SUCCESS) STATUS_ICON="✅"; NAME_COLOR="default"   ;;
+            FAILED)  STATUS_ICON="❌"; NAME_COLOR="attention" ;;
+            *)       STATUS_ICON="➖"; NAME_COLOR="default"   ;;
+        esac
 
         ROW=$(cat <<EOF
 {
-  "type": "TableRow",
-  "cells": [
-    { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "${COMPONENT}", "wrap": true, "weight": "Bolder" }] },
-    { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "${COMPONENT_CREATED[$COMPONENT]:-0}", "wrap": true, "horizontalAlignment": "Center" }] },
-    { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "${COMPONENT_RECOVERED[$COMPONENT]:-0}", "wrap": true, "horizontalAlignment": "Center" }] },
-    { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "${COMPONENT_EXISTING[$COMPONENT]:-0}", "wrap": true, "horizontalAlignment": "Center" }] },
-    { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "${COMPONENT_RESULT[$COMPONENT]:-}", "wrap": true }] },
-    { "type": "TableCell", "items": [{ "type": "TextBlock", "text": "${STATUS_LABEL}", "wrap": true, "weight": "Bolder", "color": "${STATUS_COLOR}", "horizontalAlignment": "Center" }] }
+  "type": "Container",
+  "separator": true,
+  "spacing": "Large",
+  "items": [
+    {
+      "type": "ColumnSet",
+      "columns": [
+        {
+          "type": "Column",
+          "width": "auto",
+          "verticalContentAlignment": "Center",
+          "items": [
+            { "type": "TextBlock", "text": "${STATUS_ICON}", "size": "Large" }
+          ]
+        },
+        {
+          "type": "Column",
+          "width": "stretch",
+          "items": [
+            { "type": "TextBlock", "text": "${COMPONENT}", "size": "Medium", "weight": "Bolder", "color": "${NAME_COLOR}", "wrap": true },
+            { "type": "TextBlock", "text": "${COMPONENT_RESULT[$COMPONENT]:-No result}", "isSubtle": true, "spacing": "None", "wrap": true },
+            { "type": "TextBlock", "text": "${COMPONENT_CREATED[$COMPONENT]:-0} created  ·  ${COMPONENT_RECOVERED[$COMPONENT]:-0} recovered  ·  ${COMPONENT_EXISTING[$COMPONENT]:-0} existing", "isSubtle": true, "spacing": "None", "wrap": true }
+          ]
+        }
+      ]
+    }
   ]
 }
 EOF
@@ -1016,11 +1036,9 @@ EOF
 
     done
 
-
-    # ------------------------------------------------------
-    # Optional failed-component fact
-    # ------------------------------------------------------
-
+    #-------------------------------------------------------
+    # Optional Failed Component Section (owns its leading comma)
+    #-------------------------------------------------------
 
     FAILED_COMPONENT_SECTION=""
 
@@ -1059,46 +1077,26 @@ generate_teams_card()
         "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "type": "AdaptiveCard",
         "version": "1.5",
+        "msteams": { "width": "Full" },
         "body": [
 
           {
-            "type": "Container",
-            "style": "emphasis",
-            "bleed": true,
-            "items": [
+            "type": "ColumnSet",
+            "columns": [
               {
-                "type": "ColumnSet",
-                "columns": [
-                  {
-                    "type": "Column",
-                    "width": "auto",
-                    "items": [
-                      {
-                        "type": "TextBlock",
-                        "text": "${OVERALL_ICON}",
-                        "size": "ExtraLarge"
-                      }
-                    ]
-                  },
-                  {
-                    "type": "Column",
-                    "width": "stretch",
-                    "items": [
-                      {
-                        "type": "TextBlock",
-                        "text": "Archive Execution Summary",
-                        "size": "Large",
-                        "weight": "Bolder"
-                      },
-                      {
-                        "type": "TextBlock",
-                        "text": "${START_TIME}  →  ${END_TIME}",
-                        "isSubtle": true,
-                        "spacing": "None",
-                        "wrap": true
-                      }
-                    ]
-                  }
+                "type": "Column",
+                "width": "auto",
+                "verticalContentAlignment": "Center",
+                "items": [
+                  { "type": "TextBlock", "text": "${OVERALL_ICON}", "size": "ExtraLarge" }
+                ]
+              },
+              {
+                "type": "Column",
+                "width": "stretch",
+                "items": [
+                  { "type": "TextBlock", "text": "Archive Execution Summary", "size": "ExtraLarge", "weight": "Bolder", "wrap": true },
+                  { "type": "TextBlock", "text": "Start at: ${START_TIME}  →  End at: ${END_TIME}", "isSubtle": true, "spacing": "None", "wrap": true }
                 ]
               }
             ]
@@ -1106,65 +1104,57 @@ generate_teams_card()
 
           {
             "type": "ColumnSet",
-            "spacing": "Medium",
+            "spacing": "Large",
             "columns": [
               {
                 "type": "Column",
                 "width": "stretch",
+                "style": "emphasis",
+                "roundedCorners": true,
+                "minHeight": "150px",
+                "verticalContentAlignment": "Center",
                 "items": [
-                  {
-                    "type": "TextBlock",
-                    "text": "Total",
-                    "isSubtle": true,
-                    "horizontalAlignment": "Center"
-                  },
-                  {
-                    "type": "TextBlock",
-                    "text": "${TOTAL_COMPONENTS}",
-                    "size": "Large",
-                    "weight": "Bolder",
-                    "horizontalAlignment": "Center"
-                  }
+                  { "type": "TextBlock", "text": "${ARCHIVES_CREATED}", "size": "ExtraLarge", "weight": "Bolder", "horizontalAlignment": "Center" },
+                  { "type": "TextBlock", "text": "Total Archives Created", "isSubtle": true, "spacing": "Medium", "horizontalAlignment": "Center", "wrap": true }
                 ]
               },
               {
                 "type": "Column",
                 "width": "stretch",
+                "spacing": "Small",
+                "style": "emphasis",
+                "roundedCorners": true,
+                "minHeight": "150px",
+                "verticalContentAlignment": "Center",
                 "items": [
-                  {
-                    "type": "TextBlock",
-                    "text": "Successful",
-                    "isSubtle": true,
-                    "horizontalAlignment": "Center"
-                  },
-                  {
-                    "type": "TextBlock",
-                    "text": "${SUCCESSFUL_COMPONENTS}",
-                    "size": "Large",
-                    "weight": "Bolder",
-                    "color": "good",
-                    "horizontalAlignment": "Center"
-                  }
+                  { "type": "TextBlock", "text": "${ARCHIVES_RECOVERED}", "size": "ExtraLarge", "weight": "Bolder", "horizontalAlignment": "Center" },
+                  { "type": "TextBlock", "text": "Total Archives Recovered", "isSubtle": true, "spacing": "Medium", "horizontalAlignment": "Center", "wrap": true }
                 ]
               },
               {
                 "type": "Column",
                 "width": "stretch",
+                "spacing": "Small",
+                "style": "emphasis",
+                "roundedCorners": true,
+                "minHeight": "150px",
+                "verticalContentAlignment": "Center",
                 "items": [
-                  {
-                    "type": "TextBlock",
-                    "text": "Failed",
-                    "isSubtle": true,
-                    "horizontalAlignment": "Center"
-                  },
-                  {
-                    "type": "TextBlock",
-                    "text": "${FAILED_COMPONENTS}",
-                    "size": "Large",
-                    "weight": "Bolder",
-                    "color": "${FAILED_COLOR}",
-                    "horizontalAlignment": "Center"
-                  }
+                  { "type": "TextBlock", "text": "${ARCHIVES_EXISTING}", "size": "ExtraLarge", "weight": "Bolder", "horizontalAlignment": "Center" },
+                  { "type": "TextBlock", "text": "Total Already Archived", "isSubtle": true, "spacing": "Medium", "horizontalAlignment": "Center", "wrap": true }
+                ]
+              },
+              {
+                "type": "Column",
+                "width": "stretch",
+                "spacing": "Small",
+                "style": "${FAILED_STYLE}",
+                "roundedCorners": true,
+                "minHeight": "150px",
+                "verticalContentAlignment": "Center",
+                "items": [
+                  { "type": "TextBlock", "text": "${FAILED_COMPONENTS}", "size": "ExtraLarge", "weight": "Bolder", "color": "${FAILED_COLOR}", "horizontalAlignment": "Center" },
+                  { "type": "TextBlock", "text": "Total Failed Components", "isSubtle": true, "spacing": "Medium", "horizontalAlignment": "Center", "wrap": true }
                 ]
               }
             ]
@@ -1172,140 +1162,33 @@ generate_teams_card()
 
           {
             "type": "TextBlock",
-            "text": "Component Summary",
+            "text": "Summary Per Components",
+            "isSubtle": true,
             "weight": "Bolder",
-            "size": "Medium",
+            "spacing": "ExtraLarge"
+          },
+
+          {
+            "type": "TextBlock",
+            "text": "COMPONENTS  (${SUCCESSFUL_COMPONENTS}/${TOTAL_COMPONENTS} succeeded)",
+            "isSubtle": true,
+            "weight": "Bolder",
             "spacing": "Large"
           },
 
-          {
-            "type": "Table",
-            "firstRowAsHeaders": true,
-            "gridStyle": "default",
-            "columns": [
-              { "width": 2 },
-              { "width": 1 },
-              { "width": 1 },
-              { "width": 1 },
-              { "width": 2 },
-              { "width": 1 }
-            ],
-            "rows": [
-              {
-                "type": "TableRow",
-                "cells": [
-                  {
-                    "type": "TableCell",
-                    "items": [
-                      {
-                        "type": "TextBlock",
-                        "text": "Component",
-                        "weight": "Bolder",
-                        "wrap": true
-                      }
-                    ]
-                  },
-                  {
-                    "type": "TableCell",
-                    "items": [
-                      {
-                        "type": "TextBlock",
-                        "text": "Created",
-                        "weight": "Bolder",
-                        "horizontalAlignment": "Center",
-                        "wrap": true
-                      }
-                    ]
-                  },
-                  {
-                    "type": "TableCell",
-                    "items": [
-                      {
-                        "type": "TextBlock",
-                        "text": "Recovered",
-                        "weight": "Bolder",
-                        "horizontalAlignment": "Center",
-                        "wrap": true
-                      }
-                    ]
-                  },
-                  {
-                    "type": "TableCell",
-                    "items": [
-                      {
-                        "type": "TextBlock",
-                        "text": "Existing",
-                        "weight": "Bolder",
-                        "horizontalAlignment": "Center",
-                        "wrap": true
-                      }
-                    ]
-                  },
-                  {
-                    "type": "TableCell",
-                    "items": [
-                      {
-                        "type": "TextBlock",
-                        "text": "Remarks",
-                        "weight": "Bolder",
-                        "wrap": true
-                      }
-                    ]
-                  },
-                  {
-                    "type": "TableCell",
-                    "items": [
-                      {
-                        "type": "TextBlock",
-                        "text": "Status",
-                        "weight": "Bolder",
-                        "horizontalAlignment": "Center",
-                        "wrap": true
-                      }
-                    ]
-                  }
-                ]
-              }
-              ${COMPONENT_ROWS:+,$COMPONENT_ROWS}
-            ]
-          },
-
-          {
-            "type": "FactSet",
-            "spacing": "Medium",
-            "facts": [
-              {
-                "title": "Total Archives Created",
-                "value": "${ARCHIVES_CREATED}"
-              },
-              {
-                "title": "Total Archives Recovered",
-                "value": "${ARCHIVES_RECOVERED}"
-              },
-              {
-                "title": "Total Archives Exist",
-                "value": "${ARCHIVES_EXISTING}"
-              }
-            ]
-          }
-
+          ${COMPONENT_ROWS}
           ${FAILED_COMPONENT_SECTION}
           ,
           {
-            "type": "Container",
-            "style": "${OVERALL_COLOR}",
-            "spacing": "Medium",
-            "bleed": true,
-            "items": [
-              {
-                "type": "TextBlock",
-                "text": "Overall Status: ${OVERALL_TEXT}",
-                "weight": "Bolder",
-                "size": "Medium",
-                "horizontalAlignment": "Center",
-                "wrap": true
-              }
-            ]
+            "type": "TextBlock",
+            "text": "Overall Status: ${OVERALL_TEXT}",
+            "size": "Large",
+            "weight": "Bolder",
+            "color": "${OVERALL_COLOR}",
+            "horizontalAlignment": "Center",
+            "separator": true,
+            "spacing": "Large",
+            "wrap": true
           }
 
         ]
