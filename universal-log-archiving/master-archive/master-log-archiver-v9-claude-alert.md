@@ -1021,11 +1021,12 @@ EOF
     # Optional failed-component fact
     # ------------------------------------------------------
 
-    FAILED_LIST_BLOCK=""
+
+    FAILED_COMPONENT_SECTION=""
 
     if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
 
-        FAILED_LIST_BLOCK=$(cat <<EOF
+        FAILED_COMPONENT_SECTION=$(cat <<EOF
 ,
 {
   "type": "TextBlock",
@@ -1288,9 +1289,8 @@ generate_teams_card()
             ]
           }
 
-          ${FAILED_LIST_BLOCK}
+          ${FAILED_COMPONENT_SECTION}
           ,
-
           {
             "type": "Container",
             "style": "${OVERALL_COLOR}",
