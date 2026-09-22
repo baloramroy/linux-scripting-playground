@@ -1,3 +1,4 @@
+```bash
 #!/bin/bash
 #
 # Multi Component Log Archive Script
@@ -1305,3 +1306,5 @@ if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
 fi
 
 exit 0
+
+```
