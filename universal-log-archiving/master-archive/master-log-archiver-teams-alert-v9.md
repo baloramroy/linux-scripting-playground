@@ -814,112 +814,67 @@ archive_component() {
 ############################################################
 # Print Execution Summary
 ############################################################
-#print_execution_summary()
-#{
-#    echo
-#    echo "====================================================================================="
-#    echo "Master Log Archive Execution Summary"
-#    echo "====================================================================================="
-#
-#    printf "%-30s %10s\n" "Metric" "Count"
-#    echo "-------------------------------------------------------------------------------------"
-#
-#    printf "%-30s %10s\n" "Total Components"      "$TOTAL_COMPONENTS"
-#    printf "%-30s %10s\n" "Successful Components" "$SUCCESSFUL_COMPONENTS"
-#    printf "%-30s %10s\n" "Failed Components"     "$FAILED_COMPONENTS"
-#    printf "%-30s %10s\n" "Archives Created"      "$ARCHIVES_CREATED"
-#    printf "%-30s %10s\n" "Archives Recovered"    "$ARCHIVES_RECOVERED"
-#    printf "%-30s %10s\n" "Archives Existing"     "$ARCHIVES_EXISTING"
-#
-#    echo "-------------------------------------------------------------------------------------"
-#    echo
-#
-#    echo "Each Component Summary"
-#    echo "-------------------------------------------------------------------------------------"
-#
-#    printf "%-30s %8s %11s %10s   %-17s %10s\n" \
-#        "Component" \
-#        "Created" \
-#        "Recovered" \
-#        "Existing" \
-#        "Result" \
-#        "Status"
-#
-#    echo "-------------------------------------------------------------------------------------"
-#
-#    for COMPONENT_ENTRY in "${COMPONENTS[@]}"
-#    do
-#        IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
-#
-#        printf "%-30s %8s %11s %10s   %-17s %10s\n" \
-#            "$COMPONENT" \
-#            "${COMPONENT_CREATED[$COMPONENT]:-0}" \
-#            "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
-#            "${COMPONENT_EXISTING[$COMPONENT]:-0}" \
-#            "${COMPONENT_RESULT[$COMPONENT]:-N/A}" \
-#            "${COMPONENT_STATUS[$COMPONENT]:-N/A}"
-#    done
-#
-#
-#
-#    echo "-------------------------------------------------------------------------------------"
-#    echo
-#    printf "%-30s %10s\n" "Overall Status" "$OVERALL_STATUS"
-#}
-
 
 print_execution_summary()
 {
     echo
-    echo "====================================================================================="
+    echo "=================================================================================="
     echo "Master Log Archive Execution Summary"
-    echo "====================================================================================="
+    echo "=================================================================================="
+
+    local DURATION=$(( $(date -d "$END_TIME" +%s) - $(date -d "$START_TIME" +%s) ))
 
     printf "%-20s: %s  ->  %s\n" "Run Time" "$START_TIME" "$END_TIME"
-    printf "%-20s: %s\n" "Overall Status" "$OVERALL_STATUS"
+    printf "%-20s: %ss\n" "Duration" "$DURATION"
+
+    if [[ "$SUCCESSFUL_COMPONENTS" -eq 0 && "$FAILED_COMPONENTS" -eq 0 ]]; then
+        printf "%-20s: %s  (No eligible logs to process)\n" "Overall Status" "$OVERALL_STATUS"
+    else
+        printf "%-20s: %s\n" "Overall Status" "$OVERALL_STATUS"
+    fi
+
     echo
 
-    printf "%-30s %10s\n" "Metric" "Count"
-    echo "-------------------------------------------------------------------------------------"
-
-    printf "%-30s %10s\n" "Total Components"      "$TOTAL_COMPONENTS"
-    printf "%-30s %10s\n" "Successful Components" "$SUCCESSFUL_COMPONENTS"
-    printf "%-30s %10s\n" "Failed Components"     "$FAILED_COMPONENTS"
-    printf "%-30s %10s\n" "Archives Created"      "$ARCHIVES_CREATED"
-    printf "%-30s %10s\n" "Archives Recovered"    "$ARCHIVES_RECOVERED"
-    printf "%-30s %10s\n" "Archives Existing"     "$ARCHIVES_EXISTING"
-
-    echo "-------------------------------------------------------------------------------------"
+    echo "----------------------------------------------------------------------------------"
+    echo "Component Stats"
+    echo "----------------------------------------------------------------------------------"
+    printf "%-31s %17s\n" "Total Components"      "$TOTAL_COMPONENTS"
+    printf "%-31s %17s\n" "Successful Components" "$SUCCESSFUL_COMPONENTS"
+    printf "%-31s %17s\n" "Failed Components"     "$FAILED_COMPONENTS"
     echo
-
-    echo "Component Detail"
-    echo "-------------------------------------------------------------------------------------"
+    
+    echo "----------------------------------------------------------------------------------"
+    echo "Overall Archive Stats"
+    echo "----------------------------------------------------------------------------------"
+    printf "%-31s %17s\n" "Total Archives Created"    "$ARCHIVES_CREATED"
+    printf "%-31s %17s\n" "Total Archives Recovered"  "$ARCHIVES_RECOVERED"
+    printf "%-31s %17s\n" "Archives Already Existing" "$ARCHIVES_EXISTING"
+    echo
+    
+    echo "----------------------------------------------------------------------------------"
+    echo "Component Details"
+    echo "----------------------------------------------------------------------------------"
 
     for COMPONENT_ENTRY in "${COMPONENTS[@]}"
     do
         IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
 
-        printf "[%-6s] %s\n" "${COMPONENT_STATUS[$COMPONENT]:-N/A}" "$COMPONENT"
-        printf "           Created: %-4s Recovered: %-4s Existing: %-4s\n" \
+        printf "[%-7s] %s\n" "${COMPONENT_STATUS[$COMPONENT]:-N/A}" "$COMPONENT"
+        printf "%10sCreated: %-3s Recovered: %-3s Existing: %-3s\n" "" \
             "${COMPONENT_CREATED[$COMPONENT]:-0}" \
             "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
             "${COMPONENT_EXISTING[$COMPONENT]:-0}"
-        printf "           Remark : %s\n" "${COMPONENT_RESULT[$COMPONENT]:-N/A}"
+        printf "%10sRemark : %s\n" "" "${COMPONENT_RESULT[$COMPONENT]:-N/A}"
         echo
-
     done
 
-    echo "-------------------------------------------------------------------------------------"
+    echo "----------------------------------------------------------------------------------"
 }
 
 
 ############################################################
 # Main Logic Start From Here -> archive_component() Funtion
 ############################################################
-
-#-------------------------------------------------------
-# 
-#-------------------------------------------------------
 
 echo
 echo "============================================================"
@@ -1039,7 +994,7 @@ prepare_teams_summary()
 
         case "$STATUS" in
             SUCCESS) STATUS_ICON="🔶"; NAME_COLOR="default"   ;;
-            FAILED)  STATUS_ICON="❌"; NAME_COLOR="attention" ;;
+            FAILED)  STATUS_ICON="🚫"; NAME_COLOR="attention" ;;
             *)       STATUS_ICON="➖"; NAME_COLOR="default"   ;;
         esac
 
@@ -1283,6 +1238,7 @@ send_notification()
 ############################################################
 # Build and Send Teams Summary
 ############################################################
+
 prepare_teams_summary
 
 ADAPTIVE_CARD=$(generate_teams_card)
@@ -1292,9 +1248,8 @@ if ! send_notification "$ADAPTIVE_CARD"; then
     log_error "Teams notification failed, but archive execution result is preserved."
 else
     echo
-    log_infor "Teams notification send successfully."
+    log_info "Teams notification send successfully."
 fi
-
 
 
 #-------------------------------------------------------
