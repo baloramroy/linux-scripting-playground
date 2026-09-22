@@ -1,4 +1,3 @@
-```bash
 #!/bin/bash
 #
 # Multi Component Log Archive Script
@@ -677,6 +676,7 @@ archive_component() {
         log_info "Skipping component."
 
         COMPONENT_STATUS["$COMPONENT"]="FAILED"
+        COMPONENT_RESULT["$COMPONENT"]="Source directory not found"
 
         return 1
     fi
@@ -691,6 +691,7 @@ archive_component() {
         log_error "Failed to enter source directory: $SRC_DIR"
 
         COMPONENT_STATUS["$COMPONENT"]="FAILED"
+        COMPONENT_RESULT["$COMPONENT"]="Failed to enter source directory"
 
         return 1
     fi
@@ -770,6 +771,7 @@ archive_component() {
 
         COMPONENT_PROCESS_FAILED=1
         COMPONENT_PROCESS_STATUS="FAILED"
+        COMPONENT_PROCESS_RESULT="Failed to restore working directory"
     fi
 
     #-------------------------------------------------------
@@ -811,12 +813,70 @@ archive_component() {
 ############################################################
 # Print Execution Summary
 ############################################################
+#print_execution_summary()
+#{
+#    echo
+#    echo "====================================================================================="
+#    echo "Master Log Archive Execution Summary"
+#    echo "====================================================================================="
+#
+#    printf "%-30s %10s\n" "Metric" "Count"
+#    echo "-------------------------------------------------------------------------------------"
+#
+#    printf "%-30s %10s\n" "Total Components"      "$TOTAL_COMPONENTS"
+#    printf "%-30s %10s\n" "Successful Components" "$SUCCESSFUL_COMPONENTS"
+#    printf "%-30s %10s\n" "Failed Components"     "$FAILED_COMPONENTS"
+#    printf "%-30s %10s\n" "Archives Created"      "$ARCHIVES_CREATED"
+#    printf "%-30s %10s\n" "Archives Recovered"    "$ARCHIVES_RECOVERED"
+#    printf "%-30s %10s\n" "Archives Existing"     "$ARCHIVES_EXISTING"
+#
+#    echo "-------------------------------------------------------------------------------------"
+#    echo
+#
+#    echo "Each Component Summary"
+#    echo "-------------------------------------------------------------------------------------"
+#
+#    printf "%-30s %8s %11s %10s   %-17s %10s\n" \
+#        "Component" \
+#        "Created" \
+#        "Recovered" \
+#        "Existing" \
+#        "Result" \
+#        "Status"
+#
+#    echo "-------------------------------------------------------------------------------------"
+#
+#    for COMPONENT_ENTRY in "${COMPONENTS[@]}"
+#    do
+#        IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
+#
+#        printf "%-30s %8s %11s %10s   %-17s %10s\n" \
+#            "$COMPONENT" \
+#            "${COMPONENT_CREATED[$COMPONENT]:-0}" \
+#            "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
+#            "${COMPONENT_EXISTING[$COMPONENT]:-0}" \
+#            "${COMPONENT_RESULT[$COMPONENT]:-N/A}" \
+#            "${COMPONENT_STATUS[$COMPONENT]:-N/A}"
+#    done
+#
+#
+#
+#    echo "-------------------------------------------------------------------------------------"
+#    echo
+#    printf "%-30s %10s\n" "Overall Status" "$OVERALL_STATUS"
+#}
+
+
 print_execution_summary()
 {
     echo
     echo "====================================================================================="
     echo "Master Log Archive Execution Summary"
     echo "====================================================================================="
+
+    printf "%-20s: %s  ->  %s\n" "Run Time" "$START_TIME" "$END_TIME"
+    printf "%-20s: %s\n" "Overall Status" "$OVERALL_STATUS"
+    echo
 
     printf "%-30s %10s\n" "Metric" "Count"
     echo "-------------------------------------------------------------------------------------"
@@ -831,37 +891,24 @@ print_execution_summary()
     echo "-------------------------------------------------------------------------------------"
     echo
 
-    echo "Each Component Summary"
-    echo "-------------------------------------------------------------------------------------"
-
-    printf "%-30s %8s %11s %10s   %-17s %10s\n" \
-        "Component" \
-        "Created" \
-        "Recovered" \
-        "Existing" \
-        "Result" \
-        "Status"
-
+    echo "Component Detail"
     echo "-------------------------------------------------------------------------------------"
 
     for COMPONENT_ENTRY in "${COMPONENTS[@]}"
     do
         IFS='|' read -r COMPONENT SRC_DIR DEST_DIR <<< "$COMPONENT_ENTRY"
 
-        printf "%-30s %8s %11s %10s   %-17s %10s\n" \
-            "$COMPONENT" \
+        printf "[%-6s] %s\n" "${COMPONENT_STATUS[$COMPONENT]:-N/A}" "$COMPONENT"
+        printf "           Created: %-4s Recovered: %-4s Existing: %-4s\n" \
             "${COMPONENT_CREATED[$COMPONENT]:-0}" \
             "${COMPONENT_RECOVERED[$COMPONENT]:-0}" \
-            "${COMPONENT_EXISTING[$COMPONENT]:-0}" \
-            "${COMPONENT_RESULT[$COMPONENT]:-N/A}" \
-            "${COMPONENT_STATUS[$COMPONENT]:-N/A}"
+            "${COMPONENT_EXISTING[$COMPONENT]:-0}"
+        printf "           Remark : %s\n" "${COMPONENT_RESULT[$COMPONENT]:-N/A}"
+        echo
+
     done
 
-
-
     echo "-------------------------------------------------------------------------------------"
-    echo
-    printf "%-30s %10s\n" "Overall Status" "$OVERALL_STATUS"
 }
 
 
@@ -990,7 +1037,7 @@ prepare_teams_summary()
         STATUS="${COMPONENT_STATUS[$COMPONENT]:-}"
 
         case "$STATUS" in
-            SUCCESS) STATUS_ICON="✅"; NAME_COLOR="default"   ;;
+            SUCCESS) STATUS_ICON="🔶"; NAME_COLOR="default"   ;;
             FAILED)  STATUS_ICON="❌"; NAME_COLOR="attention" ;;
             *)       STATUS_ICON="➖"; NAME_COLOR="default"   ;;
         esac
@@ -1036,28 +1083,6 @@ EOF
 
     done
 
-    #-------------------------------------------------------
-    # Optional Failed Component Section (owns its leading comma)
-    #-------------------------------------------------------
-
-    FAILED_COMPONENT_SECTION=""
-
-    if [[ "$FAILED_COMPONENTS" -gt 0 ]]; then
-
-        FAILED_COMPONENT_SECTION=$(cat <<EOF
-,
-{
-  "type": "TextBlock",
-  "text": "**Failed Component List:** ${FAILED_COMPONENTS_LIST%, }",
-  "wrap": true,
-  "color": "attention",
-  "spacing": "Medium"
-}
-EOF
-)
-
-    fi
-
 }
 
 
@@ -1096,22 +1121,31 @@ generate_teams_card()
                 "width": "stretch",
                 "items": [
                   { "type": "TextBlock", "text": "Archive Execution Summary", "size": "ExtraLarge", "weight": "Bolder", "wrap": true },
-                  { "type": "TextBlock", "text": "Start at: ${START_TIME}  →  End at: ${END_TIME}", "isSubtle": true, "spacing": "None", "wrap": true }
+                  { "type": "TextBlock", "text": "Start: ${START_TIME}  →  End: ${END_TIME}", "isSubtle": true, "spacing": "None", "wrap": true }
                 ]
               }
             ]
           },
 
           {
+            "type": "TextBlock",
+            "text": "Overview",
+            "size": "Large",
+            "weight": "Bolder",
+            "separator": true,
+            "spacing": "ExtraLarge"
+          },
+
+          {
             "type": "ColumnSet",
-            "spacing": "Large",
+            "spacing": "Medium",
             "columns": [
               {
                 "type": "Column",
                 "width": "stretch",
                 "style": "emphasis",
                 "roundedCorners": true,
-                "minHeight": "150px",
+                "minHeight": "110px",
                 "verticalContentAlignment": "Center",
                 "items": [
                   { "type": "TextBlock", "text": "${ARCHIVES_CREATED}", "size": "ExtraLarge", "weight": "Bolder", "horizontalAlignment": "Center" },
@@ -1124,7 +1158,7 @@ generate_teams_card()
                 "spacing": "Small",
                 "style": "emphasis",
                 "roundedCorners": true,
-                "minHeight": "150px",
+                "minHeight": "110px",
                 "verticalContentAlignment": "Center",
                 "items": [
                   { "type": "TextBlock", "text": "${ARCHIVES_RECOVERED}", "size": "ExtraLarge", "weight": "Bolder", "horizontalAlignment": "Center" },
@@ -1137,11 +1171,11 @@ generate_teams_card()
                 "spacing": "Small",
                 "style": "emphasis",
                 "roundedCorners": true,
-                "minHeight": "150px",
+                "minHeight": "110px",
                 "verticalContentAlignment": "Center",
                 "items": [
                   { "type": "TextBlock", "text": "${ARCHIVES_EXISTING}", "size": "ExtraLarge", "weight": "Bolder", "horizontalAlignment": "Center" },
-                  { "type": "TextBlock", "text": "Total Already Archived", "isSubtle": true, "spacing": "Medium", "horizontalAlignment": "Center", "wrap": true }
+                  { "type": "TextBlock", "text": "Already Archived Total", "isSubtle": true, "spacing": "Medium", "horizontalAlignment": "Center", "wrap": true }
                 ]
               },
               {
@@ -1150,45 +1184,55 @@ generate_teams_card()
                 "spacing": "Small",
                 "style": "${FAILED_STYLE}",
                 "roundedCorners": true,
-                "minHeight": "150px",
+                "minHeight": "110px",
                 "verticalContentAlignment": "Center",
                 "items": [
                   { "type": "TextBlock", "text": "${FAILED_COMPONENTS}", "size": "ExtraLarge", "weight": "Bolder", "color": "${FAILED_COLOR}", "horizontalAlignment": "Center" },
-                  { "type": "TextBlock", "text": "Total Failed Components", "isSubtle": true, "spacing": "Medium", "horizontalAlignment": "Center", "wrap": true }
+                  { "type": "TextBlock", "text": "Failed Components", "isSubtle": true, "spacing": "Medium", "horizontalAlignment": "Center", "wrap": true }
                 ]
               }
             ]
           },
 
           {
-            "type": "TextBlock",
-            "text": "Summary Per Components",
-            "isSubtle": true,
-            "weight": "Bolder",
-            "spacing": "ExtraLarge"
-          },
-
-          {
-            "type": "TextBlock",
-            "text": "COMPONENTS  (${SUCCESSFUL_COMPONENTS}/${TOTAL_COMPONENTS} succeeded)",
-            "isSubtle": true,
-            "weight": "Bolder",
-            "spacing": "Large"
+            "type": "ColumnSet",
+            "spacing": "ExtraLarge",
+            "columns": [
+              {
+                "type": "Column",
+                "width": "stretch",
+                "items": [
+                  { "type": "TextBlock", "text": "Per Components", "size": "Large", "weight": "Bolder" }
+                ]
+              },
+              {
+                "type": "Column",
+                "width": "auto",
+                "verticalContentAlignment": "Center",
+                "items": [
+                  { "type": "TextBlock", "text": "${SUCCESSFUL_COMPONENTS} of ${TOTAL_COMPONENTS} succeeded", "isSubtle": true }
+                ]
+              }
+            ]
           },
 
           ${COMPONENT_ROWS}
-          ${FAILED_COMPONENT_SECTION}
           ,
           {
-            "type": "TextBlock",
-            "text": "Overall Status: ${OVERALL_TEXT}",
-            "size": "Large",
-            "weight": "Bolder",
-            "color": "${OVERALL_COLOR}",
-            "horizontalAlignment": "Center",
-            "separator": true,
+            "type": "Container",
+            "style": "${OVERALL_COLOR}",
+            "roundedCorners": true,
             "spacing": "Large",
-            "wrap": true
+            "items": [
+              {
+                "type": "TextBlock",
+                "text": "Overall Status: ${OVERALL_TEXT}",
+                "size": "Large",
+                "weight": "Bolder",
+                "horizontalAlignment": "Center",
+                "wrap": true
+              }
+            ]
           }
 
         ]
@@ -1245,6 +1289,9 @@ ADAPTIVE_CARD=$(generate_teams_card)
 if ! send_notification "$ADAPTIVE_CARD"; then
     TEAMS_NOTIFICATION_FAILED=1
     log_error "Teams notification failed, but archive execution result is preserved."
+else
+    echo
+    log_infor "Teams notification send successfully."
 fi
 
 
@@ -1258,5 +1305,3 @@ if [[ "$ARCHIVE_FAILED" -ne 0 ]]; then
 fi
 
 exit 0
-
-```
