@@ -69,6 +69,48 @@ log()
     printf '%s %s\n' "$(date '+%F %T')" "$*" | tee -a "$LOG_FILE"
 }
 
+#--------------------------------------------------
+# Delete Source Log Files
+#--------------------------------------------------
+
+delete_source_files()
+{
+    local -a files=("$@")
+    local -a failed_files=()
+    local file
+
+    if ! rm -f "${files[@]}" 2>>"$LOG_FILE"; then
+
+        for file in "${files[@]}"; do
+
+            if [[ -e "$file" ]]; then
+                failed_files+=("$file")
+            fi
+
+        done
+
+    fi
+
+
+    if [[ ${#failed_files[@]} -gt 0 ]]; then
+
+        log "ERROR: ${#failed_files[@]} of ${#files[@]} source log file(s) could not be deleted."
+
+        printf '  %s\n' "${failed_files[@]}" | tee -a "$LOG_FILE"
+        
+        echo
+        log "Archive is safely stored at: $DEST_DIR/$ARCHIVE_NAME"
+
+        COMPONENT_RESULT="Archive $ARCHIVE_NAME was created and verified, but ${#failed_files[@]} source log files could not be deleted."
+
+    else
+        log "Source log files deleted successfully (${#files[@]} files)."
+
+    fi
+
+    return 0
+}
+
 
 #==================================================
 # MAIN ARCHIVING LOGIC
@@ -312,7 +354,7 @@ main()
 
                 log "Removing source log files..."
 
-                rm -f "${FILES[@]}"
+                delete_source_files "${FILES[@]}"
 
                 LOG_FILES_PROCESSED=$((LOG_FILES_PROCESSED + ${#FILES[@]}))
                 ARCHIVES_RECOVERED=$((ARCHIVES_RECOVERED + 1))
@@ -403,7 +445,7 @@ main()
 
             log "Deleting source log files..."
 
-            rm -f "${FILES[@]}"
+            delete_source_files "${FILES[@]}"
 
             LOG_FILES_PROCESSED=$((LOG_FILES_PROCESSED + ${#FILES[@]}))
             ARCHIVES_CREATED=$((ARCHIVES_CREATED + 1))
@@ -582,29 +624,26 @@ build_teams_card()
                                     {
                                         "type": "Column",
                                         "width": "stretch",
+                                        "style": "emphasis",
+                                        "roundedCorners": true,
+                                        "minHeight": "110px",
+                                        "verticalContentAlignment": "Center",
                                         "items": [
                                             {
-                                                "type": "Container",
-                                                "style": "emphasis",
-                                                "spacing": "None",
-                                                "items": [
-                                                    {
-                                                        "type": "TextBlock",
-                                                        "text": "$LOG_FILES_PROCESSED",
-                                                        "size": "ExtraLarge",
-                                                        "weight": "Bolder",
-                                                        "horizontalAlignment": "Center",
-                                                        "spacing": "None"
-                                                    },
-                                                    {
-                                                        "type": "TextBlock",
-                                                        "text": "Log Files Processed",
-                                                        "size": "Small",
-                                                        "wrap": true,
-                                                        "horizontalAlignment": "Center",
-                                                        "spacing": "Small"
-                                                    }
-                                                ]
+                                                "type": "TextBlock",
+                                                "text": "$LOG_FILES_PROCESSED",
+                                                "size": "ExtraLarge",
+                                                "weight": "Bolder",
+                                                "horizontalAlignment": "Center",
+                                                "spacing": "None"
+                                            },
+                                            {
+                                                "type": "TextBlock",
+                                                "text": "Log Files Processed",
+                                                "size": "Small",
+                                                "wrap": true,
+                                                "horizontalAlignment": "Center",
+                                                "spacing": "Small"
                                             }
                                         ]
                                     },
@@ -612,29 +651,26 @@ build_teams_card()
                                     {
                                         "type": "Column",
                                         "width": "stretch",
+                                        "style": "emphasis",
+                                        "roundedCorners": true,
+                                        "minHeight": "110px",
+                                        "verticalContentAlignment": "Center",
                                         "items": [
                                             {
-                                                "type": "Container",
-                                                "style": "emphasis",
-                                                "spacing": "None",
-                                                "items": [
-                                                    {
-                                                        "type": "TextBlock",
-                                                        "text": "$ARCHIVES_CREATED",
-                                                        "size": "ExtraLarge",
-                                                        "weight": "Bolder",
-                                                        "horizontalAlignment": "Center",
-                                                        "spacing": "None"
-                                                    },
-                                                    {
-                                                        "type": "TextBlock",
-                                                        "text": "Archives Created",
-                                                        "size": "Small",
-                                                        "wrap": true,
-                                                        "horizontalAlignment": "Center",
-                                                        "spacing": "Small"
-                                                    }
-                                                ]
+                                                "type": "TextBlock",
+                                                "text": "$ARCHIVES_CREATED",
+                                                "size": "ExtraLarge",
+                                                "weight": "Bolder",
+                                                "horizontalAlignment": "Center",
+                                                "spacing": "None"
+                                            },
+                                            {
+                                                "type": "TextBlock",
+                                                "text": "Archives Created",
+                                                "size": "Small",
+                                                "wrap": true,
+                                                "horizontalAlignment": "Center",
+                                                "spacing": "Small"
                                             }
                                         ]
                                     },
@@ -642,29 +678,26 @@ build_teams_card()
                                     {
                                         "type": "Column",
                                         "width": "stretch",
+                                        "style": "emphasis",
+                                        "roundedCorners": true,
+                                        "minHeight": "110px",
+                                        "verticalContentAlignment": "Center",
                                         "items": [
                                             {
-                                                "type": "Container",
-                                                "style": "emphasis",
-                                                "spacing": "None",
-                                                "items": [
-                                                    {
-                                                        "type": "TextBlock",
-                                                        "text": "$ARCHIVES_RECOVERED",
-                                                        "size": "ExtraLarge",
-                                                        "weight": "Bolder",
-                                                        "horizontalAlignment": "Center",
-                                                        "spacing": "None"
-                                                    },
-                                                    {
-                                                        "type": "TextBlock",
-                                                        "text": "Archives Recovered",
-                                                        "size": "Small",
-                                                        "wrap": true,
-                                                        "horizontalAlignment": "Center",
-                                                        "spacing": "Small"
-                                                    }
-                                                ]
+                                                "type": "TextBlock",
+                                                "text": "$ARCHIVES_RECOVERED",
+                                                "size": "ExtraLarge",
+                                                "weight": "Bolder",
+                                                "horizontalAlignment": "Center",
+                                                "spacing": "None"
+                                            },
+                                            {
+                                                "type": "TextBlock",
+                                                "text": "Archives Recovered",
+                                                "size": "Small",
+                                                "wrap": true,
+                                                "horizontalAlignment": "Center",
+                                                "spacing": "Small"
                                             }
                                         ]
                                     },
@@ -672,29 +705,26 @@ build_teams_card()
                                     {
                                         "type": "Column",
                                         "width": "stretch",
+                                        "style": "emphasis",
+                                        "roundedCorners": true,
+                                        "minHeight": "110px",
+                                        "verticalContentAlignment": "Center",
                                         "items": [
                                             {
-                                                "type": "Container",
-                                                "style": "emphasis",
-                                                "spacing": "None",
-                                                "items": [
-                                                    {
-                                                        "type": "TextBlock",
-                                                        "text": "$ARCHIVES_EXISTING",
-                                                        "size": "ExtraLarge",
-                                                        "weight": "Bolder",
-                                                        "horizontalAlignment": "Center",
-                                                        "spacing": "None"
-                                                    },
-                                                    {
-                                                        "type": "TextBlock",
-                                                        "text": "Already Existing",
-                                                        "size": "Small",
-                                                        "wrap": true,
-                                                        "horizontalAlignment": "Center",
-                                                        "spacing": "Small"
-                                                    }
-                                                ]
+                                                "type": "TextBlock",
+                                                "text": "$ARCHIVES_EXISTING",
+                                                "size": "ExtraLarge",
+                                                "weight": "Bolder",
+                                                "horizontalAlignment": "Center",
+                                                "spacing": "None"
+                                            },
+                                            {
+                                                "type": "TextBlock",
+                                                "text": "Already Existing",
+                                                "size": "Small",
+                                                "wrap": true,
+                                                "horizontalAlignment": "Center",
+                                                "spacing": "Small"
                                             }
                                         ]
                                     }
